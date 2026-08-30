@@ -28,6 +28,8 @@ done
 grep -Fq 'bash tests/package-policy.sh' "$check_workflow"
 grep -Fq 'bash tests/update.sh' "$check_workflow"
 grep -Fq 'bash tests/bundle.sh' "$check_workflow"
+grep -Eq '^[[:space:]]+fetch-depth:[[:space:]]+0([[:space:]]|$)' "$check_workflow" ||
+  fail 'check workflow does not fetch complete history'
 grep -Fq 'nix flake check --no-build' "$check_workflow"
 grep -Fq 'nix --extra-system-features codex-artifact-publisher build -L .#codex' "$check_workflow"
 grep -Fq './result/bin/codex --version' "$check_workflow"
@@ -73,7 +75,7 @@ privacy_patterns=(
   '/ro''ot(/|[^[:alnum:]_.-]|$)'
   '[A-Za-z]:\\Us''ers\\[[:alnum:]_.-]+(\\|[^[:alnum:]_.-]|$)'
   '-----BEGIN [A-Z0-9 ]*PRIVATE'' KEY-----'
-  '(ghp|github_pat|glpat|xox[baprs])_[[:alnum:]_-]{16,}'
+  '(gh[a-z]|github_pat|glpat|xox[baprs])_[[:alnum:]_-]{16,}'
   'AKIA[0-9A-Z]{16}'
   "(password|passwd|secret|api[_-]?(key|token)|access[_-]?token|auth[_-]?token)[[:space:]]*[:=][[:space:]]*[\"']?[^\"'[:space:]]+"
   '(git\+)?ss''h://'
