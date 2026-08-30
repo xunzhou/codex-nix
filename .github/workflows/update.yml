@@ -54,6 +54,15 @@ jobs:
           # nix-update v1.16.0
           nix profile install 'github:Mic92/nix-update/f1312346bf252dc10a0b6f70aae80c0a32395c5c#nix-update'
 
+      - name: Reclaim disk space for Codex build
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo env \
+            GITHUB_ACTIONS="$GITHUB_ACTIONS" \
+            RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" \
+            bash scripts/reclaim-runner-disk.sh
+
       - name: Update and validate
         id: update
         shell: bash

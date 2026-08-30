@@ -35,6 +35,15 @@ jobs:
         shell: bash
         run: nix flake check --no-build
 
+      - name: Reclaim disk space for Codex build
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo env \
+            GITHUB_ACTIONS="$GITHUB_ACTIONS" \
+            RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" \
+            bash scripts/reclaim-runner-disk.sh
+
       - name: Build and test Codex binaries
         shell: bash
         run: |

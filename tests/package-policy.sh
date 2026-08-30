@@ -12,6 +12,7 @@ check_workflow="$repo_root/.github/workflows/check.yml"
 smoke_workflow="$repo_root/.github/workflows/install-smoke.yml"
 update_workflow="$repo_root/.github/workflows/update.yml"
 readme="$repo_root/README.md"
+cleanup_script="$repo_root/scripts/reclaim-runner-disk.sh"
 
 test -f "$repo_root/package.nix"
 test -f "$repo_root/patches/live-palette-refresh.patch"
@@ -21,13 +22,62 @@ grep -Fq '"codex-code-mode-host"' "$repo_root/package.nix"
 grep -Fq 'requiredSystemFeatures = [ "codex-artifact-publisher" ];' "$repo_root/package.nix"
 grep -Fq 'systems = [ "x86_64-linux" ];' "$repo_root/flake.nix"
 
-for required_file in "$check_workflow" "$smoke_workflow" "$update_workflow" "$readme"; do
+for required_file in \
+  "$check_workflow" \
+  "$smoke_workflow" \
+  "$update_workflow" \
+  "$readme" \
+  "$cleanup_script"; do
   [[ -f "$required_file" ]] || fail "required file is absent: ${required_file#"$repo_root/"}"
 done
+
+cleanup_test_directory=$(mktemp -d)
+trap 'rm -rf "$cleanup_test_directory"' EXIT
+cleanup_root="$cleanup_test_directory/runner"
+cleanup_targets=(
+  usr/local/lib/android
+  usr/share/dotnet
+  opt/ghc
+  usr/local/.ghcup
+  usr/local/share/boost
+  opt/hostedtoolcache
+)
+mkdir -p "$cleanup_root/keep"
+touch "$cleanup_root/keep/sentinel"
+for relative_path in "${cleanup_targets[@]}"; do
+  mkdir -p "$cleanup_root/$relative_path"
+  touch "$cleanup_root/$relative_path/unused-sdk"
+done
+
+cleanup_output=$(CODEX_RUNNER_DISK_TEST=1 \
+  bash "$cleanup_script" --root "$cleanup_root") ||
+  fail 'runner disk cleanup failed against a sandbox root'
+grep -Fq 'Disk space before cleanup:' <<<"$cleanup_output"
+grep -Fq 'Disk space after cleanup:' <<<"$cleanup_output"
+for relative_path in "${cleanup_targets[@]}"; do
+  [[ ! -e "$cleanup_root/$relative_path" ]] ||
+    fail "runner disk cleanup retained $relative_path"
+done
+[[ -f "$cleanup_root/keep/sentinel" ]] ||
+  fail 'runner disk cleanup removed an unlisted path'
+
+unsafe_root="$cleanup_test_directory/unsafe-runner"
+outside_root="$cleanup_test_directory/outside"
+mkdir -p "$unsafe_root/usr/local/lib" "$outside_root"
+touch "$outside_root/sentinel"
+ln -s "$outside_root" "$unsafe_root/usr/local/lib/android"
+if CODEX_RUNNER_DISK_TEST=1 \
+  bash "$cleanup_script" --root "$unsafe_root" >/dev/null 2>&1; then
+  fail 'runner disk cleanup followed a symlink target'
+fi
+[[ -f "$outside_root/sentinel" ]] ||
+  fail 'runner disk cleanup deleted through a symlink'
 
 grep -Fq 'bash tests/package-policy.sh' "$check_workflow"
 grep -Fq 'bash tests/update.sh' "$check_workflow"
 grep -Fq 'bash tests/bundle.sh' "$check_workflow"
+grep -Fq 'bash scripts/reclaim-runner-disk.sh' "$check_workflow"
+grep -Fq 'bash scripts/reclaim-runner-disk.sh' "$update_workflow"
 # Treat only a direct `with.fetch-depth` child of every pinned checkout step as valid.
 # Identical text nested in a `run: |` block has deeper indentation and must not count.
 if ! awk '
