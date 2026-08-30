@@ -7,6 +7,14 @@ fail() {
   exit 1
 }
 
+installer_temporary_directory=''
+
+cleanup_installer_temporary_directory() {
+  local directory="$installer_temporary_directory"
+  installer_temporary_directory=''
+  [[ -z "$directory" ]] || rm -rf -- "$directory"
+}
+
 require_command() {
   local name="$1"
   local path
@@ -145,14 +153,10 @@ main() {
     fail 'CODEX_GITHUB_TOKEN must be a single line'
   fi
 
-  local temporary_directory
-  temporary_directory=$(mktemp -d)
-  cleanup() {
-    rm -rf "$temporary_directory"
-  }
-  trap cleanup EXIT
+  installer_temporary_directory=$(mktemp -d)
+  trap cleanup_installer_temporary_directory EXIT
 
-  local release_path="$temporary_directory/release.json"
+  local release_path="$installer_temporary_directory/release.json"
   local release_url="https://api.github.com/repos/$CODEX_BUNDLE_REPO/releases/tags/$CODEX_BUNDLE_TAG"
   github_api 'application/vnd.github+json' -o "$release_path" "$release_url" ||
     fail 'could not resolve the exact bundle release'
@@ -187,9 +191,9 @@ main() {
         end
     ' "$release_path") || fail 'release assets do not match the exact bundle inventory'
 
-  local archive_path="$temporary_directory/$CODEX_BUNDLE_ARCHIVE"
-  local manifest_path="$temporary_directory/$CODEX_BUNDLE_MANIFEST"
-  local checksums_path="$temporary_directory/$CODEX_BUNDLE_CHECKSUMS"
+  local archive_path="$installer_temporary_directory/$CODEX_BUNDLE_ARCHIVE"
+  local manifest_path="$installer_temporary_directory/$CODEX_BUNDLE_MANIFEST"
+  local checksums_path="$installer_temporary_directory/$CODEX_BUNDLE_CHECKSUMS"
   local asset_name asset_url expected_digest asset_path actual_digest
   while IFS=$'\t' read -r asset_name asset_url expected_digest; do
     case "$asset_name" in
@@ -209,7 +213,7 @@ main() {
   validate_checksum_file "$checksums_path" "$CODEX_BUNDLE_ARCHIVE" "$CODEX_BUNDLE_MANIFEST" ||
     fail 'checksum file has invalid entries'
   if ! (
-    cd "$temporary_directory"
+    cd "$installer_temporary_directory"
     "$sha256sum_bin" --check --strict "$CODEX_BUNDLE_CHECKSUMS"
   ); then
     fail 'checksum verification failed'

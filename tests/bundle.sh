@@ -810,6 +810,26 @@ if [[ "$requested_suite" != publisher ]]; then
       "$@" bash "$installer" --flake-ref .
   }
 
+  run_successful_installer() {
+    local log="$1" manifest="$2" checksums="$3" temporary_root="$4"
+    local metadata
+    metadata=$(installer_release_metadata "$manifest" "$checksums")
+    : >"$log"
+    env PATH="$fake_bin:$real_path" \
+      FAKE_REPO_ROOT="$repo_root" FAKE_EXPECT_FLAKE_REF=. \
+      REAL_JQ="$real_jq" REAL_SHA256SUM="$real_sha256sum" \
+      PUBLISHER_LOG="$log" INSTALLER_LOG="$log" \
+      FAKE_USE_REAL_FILE_SHA=yes \
+      FAKE_ARCHIVE_SHA256=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+      FAKE_MANIFEST_CONTENT="$manifest" FAKE_CHECKSUMS_CONTENT="$checksums" \
+      FAKE_INSTALLER_RELEASE_METADATA="$metadata" CODEX_GITHUB_TOKEN= \
+      TMPDIR="$temporary_root" bash -c '
+        source "$1"
+        verify_installed_output() { :; }
+        main --flake-ref .
+      ' bash "$installer"
+  }
+
   assert_installer_rejected() {
     local expected="$1" log="$2" manifest="$3" checksums="$4"
     shift 4
@@ -821,6 +841,18 @@ if [[ "$requested_suite" != publisher ]]; then
 
   valid_installer_manifest=$(installer_manifest)
   valid_installer_checksums=$(installer_checksums "$valid_installer_manifest")
+
+  successful_cleanup_root="$scratch/installer-success-cleanup"
+  mkdir -p "$successful_cleanup_root"
+  successful_log="$scratch/installer-success.log"
+  if ! successful_output=$(run_successful_installer "$successful_log" \
+    "$valid_installer_manifest" "$valid_installer_checksums" "$successful_cleanup_root" 2>&1); then
+    fail "successful installer lifecycle failed: $successful_output"
+  fi
+  assert_contains 'imported' "$successful_output" 'successful installer did not report its import'
+  if find "$successful_cleanup_root" -mindepth 1 -print -quit | grep -q .; then
+    fail 'successful installer retained its temporary directory'
+  fi
 
   anonymous_log="$scratch/installer-anonymous.log"
   assert_fails 'Codex executable is missing' run_installer "$anonymous_log" \
