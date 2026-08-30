@@ -34,6 +34,9 @@ rustPlatform.buildRustPackage rec {
     "-p"
     "codex-code-mode-host"
   ];
+  preBuild = ''
+    export NIX_BUILD_CORES=1
+  '';
 
   RUSTY_V8_ARCHIVE = fetchurl {
     url = "${rustyV8Release}/librusty_v8_ptrcomp_sandbox_release_x86_64-unknown-linux-gnu.a.gz";

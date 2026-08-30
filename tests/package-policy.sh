@@ -120,6 +120,19 @@ for output in packages apps checks; do
     fail "$output exposes unsupported systems: $actual_systems"
 done
 
+codex_derivation=$(nix --extra-experimental-features 'nix-command flakes' \
+  derivation show .#codex) || fail 'could not inspect the Codex derivation'
+codex_pre_build=$(jq -r \
+  '.derivations | to_entries[0].value.env.preBuild // ""' \
+  <<<"$codex_derivation")
+effective_build_cores=$(
+  export NIX_BUILD_CORES=8
+  eval "$codex_pre_build"
+  printf '%s' "$NIX_BUILD_CORES"
+)
+[[ "$effective_build_cores" == 1 ]] ||
+  fail "Codex build permits $effective_build_cores concurrent Cargo jobs"
+
 git -C "$repo_root" rev-parse --is-inside-work-tree >/dev/null
 
 license_pattern='(^|/)LICENSE($|[.])'
