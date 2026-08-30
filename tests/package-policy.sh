@@ -73,6 +73,34 @@ fi
 [[ -f "$outside_root/sentinel" ]] ||
   fail 'runner disk cleanup deleted through a symlink'
 
+# Exercise the shipped patch against the declared source. Tests can override the
+# source path to reproduce compatibility against a candidate upstream release.
+patch_source=${CODEX_PATCH_SOURCE:-}
+if [[ -z "$patch_source" ]]; then
+  patch_source=$(nix --extra-experimental-features 'nix-command flakes' \
+    build --no-link --print-out-paths "$repo_root#codex.src") ||
+    fail 'could not realize the declared Codex source'
+fi
+[[ -d "$patch_source" ]] || fail "Codex patch source is not a directory: $patch_source"
+
+patch_test_root="$cleanup_test_directory/patch"
+cp -R --no-preserve=mode "$patch_source" "$patch_test_root"
+if ! patch --batch --forward -d "$patch_test_root" -p1 \
+  <"$repo_root/patches/live-palette-refresh.patch" >/dev/null; then
+  fail 'live palette patch does not apply to the Codex source'
+fi
+
+patched_palette="$patch_test_root/codex-rs/tui/src/terminal_palette.rs"
+patched_events="$patch_test_root/codex-rs/tui/src/tui/event_stream.rs"
+grep -Fq 'static TEST_DEFAULT_COLORS:' "$patched_palette" ||
+  fail 'live palette patch discarded the upstream test palette override'
+grep -Fq 'fn with_test_default_colors<T>(' "$patched_palette" ||
+  fail 'live palette patch discarded the upstream scoped test helper'
+grep -Fq 'fn refreshed_default_colors(' "$patched_palette" ||
+  fail 'live palette patch lacks refresh fallback semantics'
+grep -Fq 'fn poll_palette_refresh_signal(' "$patched_events" ||
+  fail 'live palette patch lacks the SIGUSR1 event path'
+
 grep -Fq 'bash tests/package-policy.sh' "$check_workflow"
 grep -Fq 'bash tests/update.sh' "$check_workflow"
 grep -Fq 'bash tests/bundle.sh' "$check_workflow"
