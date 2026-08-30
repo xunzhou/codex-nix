@@ -208,7 +208,7 @@ effective_build_cores=$(
   eval "$codex_pre_build"
   printf '%s' "$NIX_BUILD_CORES"
 )
-[[ "$effective_build_cores" == 1 ]] ||
+[[ "$effective_build_cores" == 2 ]] ||
   fail "Codex build permits $effective_build_cores concurrent Cargo jobs"
 
 git -C "$repo_root" rev-parse --is-inside-work-tree >/dev/null

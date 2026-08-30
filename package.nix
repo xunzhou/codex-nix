@@ -35,7 +35,7 @@ rustPlatform.buildRustPackage rec {
     "codex-code-mode-host"
   ];
   preBuild = ''
-    export NIX_BUILD_CORES=1
+    export NIX_BUILD_CORES=2
   '';
 
   RUSTY_V8_ARCHIVE = fetchurl {

@@ -173,7 +173,8 @@ if run_update 0.150.1 0.151.0 \
 fi
 assert_log_excludes 'nix-update'
 
-# Changing the already-current branch to update or to skip validation breaks this case.
+# An already-current explicit release must stop after upstream and local version
+# validation so it cannot spend hours rebuilding an unchanged Codex closure.
 TEST_VERSION_ARGUMENTS=(0.150.1)
 set +e
 run_update 0.150.1 0.150.1 "$(stable_release 0.150.1)" env
@@ -182,10 +183,27 @@ set -e
 [[ $already_current_status -eq 10 ]] ||
   fail "already-current exit status was $already_current_status, expected 10"
 assert_log_excludes 'nix-update'
-assert_log_contains 'git <diff> <--check>'
-assert_log_contains 'nix <flake> <check> <--no-build>'
-assert_log_contains 'nix <--extra-system-features> <codex-artifact-publisher> <build> <-L> <.#codex>'
+assert_log_contains 'nix <eval> <--raw> <.#codex.version>'
+assert_log_excludes 'git <diff> <--check>'
+assert_log_excludes 'nix <flake> <check> <--no-build>'
+assert_log_excludes 'nix <--extra-system-features> <codex-artifact-publisher> <build> <-L> <.#codex>'
 assert_log_excludes 'git <commit>'
+
+# Latest-stable resolution has the same fast path after it validates the
+# selected release rather than trusting the package version alone.
+TEST_VERSION_ARGUMENTS=()
+set +e
+run_update 0.151.0 0.151.0 "$latest_releases" env
+latest_already_current_status=$?
+set -e
+[[ $latest_already_current_status -eq 10 ]] ||
+  fail "latest already-current exit status was $latest_already_current_status, expected 10"
+assert_log_contains '/repos/openai/codex/releases?per_page=100'
+assert_log_contains 'nix <eval> <--raw> <.#codex.version>'
+assert_log_excludes 'nix-update'
+assert_log_excludes 'git <diff> <--check>'
+assert_log_excludes 'nix <flake> <check> <--no-build>'
+assert_log_excludes 'nix <--extra-system-features> <codex-artifact-publisher> <build> <-L> <.#codex>'
 
 # A failed updater must stop before validation or any commit boundary.
 TEST_VERSION_ARGUMENTS=(0.151.0)

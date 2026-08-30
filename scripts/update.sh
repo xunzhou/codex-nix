@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Exit 10 means the requested release was already current and all validation
-# probes passed. Every other nonzero status is a failed update or validation.
+# Exit 10 means the requested release was already current after upstream release
+# metadata and local package version validation. Every other nonzero status is a
+# failed update or validation.
 already_current_exit=10
 upstream_api='https://api.github.com/repos/openai/codex'
 stable_tag_pattern='^rust-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
@@ -94,14 +95,13 @@ current_version=$(nix eval --raw .#codex.version) ||
 [[ "$current_version" =~ $stable_version_pattern ]] ||
   fail 'current Codex version is not a stable semantic version'
 
-already_current=0
 if [[ "$current_version" == "$version" ]]; then
-  already_current=1
-  printf 'codex updater: %s is already current; validating\n' "$release_tag"
-else
-  nix-update codex --flake --version="$version" --override-filename=package.nix ||
-    fail "could not update package.nix for $release_tag"
+  printf 'codex updater: %s is already current; skipping build\n' "$release_tag"
+  exit "$already_current_exit"
 fi
+
+nix-update codex --flake --version="$version" --override-filename=package.nix ||
+  fail "could not update package.nix for $release_tag"
 
 git diff --check || fail 'updated files contain whitespace errors'
 nix flake check --no-build || fail 'flake evaluation failed'
@@ -113,9 +113,5 @@ test "$(./result/bin/codex --version)" = "codex-cli $version" ||
   fail 'codex-code-mode-host smoke test failed'
 grep -aFqm1 'terminal palette refresh did not return default colors' ./result/bin/codex ||
   fail 'built Codex does not contain the terminal palette patch marker'
-
-if ((already_current)); then
-  exit "$already_current_exit"
-fi
 
 printf 'codex updater: validated %s\n' "$release_tag"
