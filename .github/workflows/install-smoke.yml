@@ -1,0 +1,34 @@
+name: Fresh install smoke
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install-smoke:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+
+      - name: Import and validate the expected release output
+        shell: bash
+        env:
+          CODEX_GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          expected_output=$(nix eval --raw .#codex.outPath)
+          expected_version=$(nix eval --raw .#codex.version)
+          install_output=$(nix run .#install)
+
+          grep -Fx -- "output: $expected_output" <<<"$install_output"
+          [[ $("$expected_output/bin/codex" --version) == "codex-cli $expected_version" ]]
+          "$expected_output/bin/codex-code-mode-host" --help >/dev/null

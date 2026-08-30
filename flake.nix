@@ -49,5 +49,9 @@
           meta.description = "Install the exact verified Codex release bundle";
         };
       });
+
+      checks = forAllSystems (system: {
+        inherit (self.packages.${system}) codex installer;
+      });
     };
 }

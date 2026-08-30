@@ -115,3 +115,10 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_TOKEN: ${{ github.token }}
         run: bash scripts/publish-bundle.sh
+
+  install-smoke:
+    name: Verify fresh release import
+    needs: update
+    permissions:
+      contents: read
+    uses: ./.github/workflows/install-smoke.yml

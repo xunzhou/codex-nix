@@ -1,0 +1,42 @@
+name: Check
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            system-features = benchmark big-parallel kvm nixos-test codex-artifact-publisher
+
+      - name: Run shell suites
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/package-policy.sh
+          bash tests/update.sh
+          bash tests/bundle.sh
+
+      - name: Evaluate flake checks
+        shell: bash
+        run: nix flake check --no-build
+
+      - name: Build and test Codex binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          nix --extra-system-features codex-artifact-publisher build -L .#codex
+          ./result/bin/codex --version
+          ./result/bin/codex-code-mode-host --help >/dev/null
