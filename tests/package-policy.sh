@@ -28,8 +28,67 @@ done
 grep -Fq 'bash tests/package-policy.sh' "$check_workflow"
 grep -Fq 'bash tests/update.sh' "$check_workflow"
 grep -Fq 'bash tests/bundle.sh' "$check_workflow"
-grep -Eq '^[[:space:]]+fetch-depth:[[:space:]]+0([[:space:]]|$)' "$check_workflow" ||
-  fail 'check workflow does not fetch complete history'
+# Treat only a direct `with.fetch-depth` child of every pinned checkout step as valid.
+# Identical text nested in a `run: |` block has deeper indentation and must not count.
+if ! awk '
+  function leading_spaces(line) {
+    match(line, /[^ ]/)
+    return RSTART ? RSTART - 1 : length(line)
+  }
+
+  function finish_checkout() {
+    if (in_checkout && !has_full_depth) {
+      invalid_checkout = 1
+    }
+    in_checkout = 0
+    in_with = 0
+    has_full_depth = 0
+  }
+
+  {
+    indent = leading_spaces($0)
+    text = substr($0, indent + 1)
+
+    if (in_checkout && text !~ /^($|#)/ && indent < checkout_indent) {
+      finish_checkout()
+    }
+
+    if (text ~ /^uses:[[:space:]]+actions\/checkout@[0-9a-f]{40}([[:space:]]+#.*)?$/) {
+      finish_checkout()
+      saw_checkout = 1
+      in_checkout = 1
+      checkout_indent = indent
+      next
+    }
+
+    if (!in_checkout || text ~ /^($|#)/) {
+      next
+    }
+
+    if (indent == checkout_indent && text ~ /^with:[[:space:]]*$/) {
+      in_with = 1
+      with_indent = indent
+      next
+    }
+
+    if (indent == checkout_indent) {
+      in_with = 0
+      next
+    }
+
+    if (in_with && indent == with_indent + 2 &&
+        text ~ /^fetch-depth:[[:space:]]+0([[:space:]]|#|$)/) {
+      has_full_depth = 1
+    }
+  }
+
+  END {
+    finish_checkout()
+    exit !(saw_checkout && !invalid_checkout)
+  }
+' "$check_workflow"; then
+  fail 'pinned checkout step does not fetch complete history'
+fi
 grep -Fq 'nix flake check --no-build' "$check_workflow"
 grep -Fq 'nix --extra-system-features codex-artifact-publisher build -L .#codex' "$check_workflow"
 grep -Fq './result/bin/codex --version' "$check_workflow"
