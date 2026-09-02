@@ -183,6 +183,12 @@ if grep -Fq 'codex-artifact-publisher' "$smoke_workflow" ||
 fi
 
 grep -Fq 'uses: ./.github/workflows/install-smoke.yml' "$update_workflow"
+grep -Eq '^[[:space:]]+schedule:[[:space:]]*$' "$update_workflow" ||
+  fail 'Codex update workflow is not scheduled'
+grep -Fq "cron: '17 8 * * *'" "$update_workflow" ||
+  fail 'Codex update workflow does not run daily'
+grep -Fq "run-name: Update Codex (\${{ inputs.request_id || 'scheduled' }})" "$update_workflow" ||
+  fail 'scheduled Codex updates lack a correlation label'
 
 grep -Fq 'nix run github:xunzhou/codex-nix -- --version' "$readme"
 grep -Fq 'nix profile install github:xunzhou/codex-nix' "$readme"

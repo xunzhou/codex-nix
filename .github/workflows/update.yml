@@ -1,7 +1,9 @@
 name: Update Codex
-run-name: Update Codex (${{ inputs.request_id }})
+run-name: Update Codex (${{ inputs.request_id || 'scheduled' }})
 
 on:
+  schedule:
+    - cron: '17 8 * * *'
   workflow_dispatch:
     inputs:
       version:
