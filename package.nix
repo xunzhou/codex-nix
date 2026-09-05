@@ -14,13 +14,13 @@ let
 in
 rustPlatform.buildRustPackage rec {
   pname = "codex-palette-patched";
-  version = "0.153.2";
+  version = "0.153.4";
 
   src = fetchFromGitHub {
     owner = "openai";
     repo = "codex";
     rev = "rust-v${version}";
-    hash = "sha256-R97lEHS2XfMQNbAc9k8v7EbcQCnwxND7zhnK3EBsI3Y=";
+    hash = "sha256-lHiDj5SodaM3mh8goMm6esfejeAT+Y3JJWrRnyj6sJo=";
   };
 
   patches = [ ./patches/live-palette-refresh.patch ];
