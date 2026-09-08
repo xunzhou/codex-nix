@@ -25,10 +25,27 @@ set -euo pipefail
 printf 'curl' >>"$TEST_COMMAND_LOG"
 printf ' <%s>' "$@" >>"$TEST_COMMAND_LOG"
 printf '\n' >>"$TEST_COMMAND_LOG"
+if [[ -n ${TEST_CURL_FAILURES_BEFORE_SUCCESS:-} ]]; then
+  curl_attempt=0
+  if [[ -s $TEST_CURL_ATTEMPT_FILE ]]; then
+    read -r curl_attempt <"$TEST_CURL_ATTEMPT_FILE"
+  fi
+  curl_attempt=$((curl_attempt + 1))
+  printf '%s\n' "$curl_attempt" >"$TEST_CURL_ATTEMPT_FILE"
+  if ((curl_attempt <= TEST_CURL_FAILURES_BEFORE_SUCCESS)); then
+    printf '{"partial":'
+    exit 92
+  fi
+fi
 if [[ ${TEST_CURL_FAIL:-0} == 1 ]]; then
   exit 22
 fi
 printf '%s\n' "$TEST_RELEASE_JSON"
+FAKE
+
+cat >"$fake_bin/sleep" <<'FAKE'
+#!/usr/bin/env bash
+set -euo pipefail
 FAKE
 
 cat >"$fake_bin/nix-update" <<'FAKE'
@@ -95,7 +112,12 @@ if [[ $1 == diff && ${2:-} == --check && ${TEST_DIFF_CHECK_FAIL:-0} == 1 ]]; the
 fi
 FAKE
 
-chmod +x "$fake_bin/curl" "$fake_bin/nix-update" "$fake_bin/nix" "$fake_bin/git"
+chmod +x \
+  "$fake_bin/curl" \
+  "$fake_bin/sleep" \
+  "$fake_bin/nix-update" \
+  "$fake_bin/nix" \
+  "$fake_bin/git"
 
 stable_release() {
   local version="$1"
@@ -137,6 +159,7 @@ assert_log_excludes() {
 }
 
 TEST_COMMAND_LOG="$test_root/commands.log"
+TEST_CURL_ATTEMPT_FILE="$test_root/curl-attempt"
 
 # Removing the stable-tag filter would select the alpha/RC entries instead.
 latest_releases='[
@@ -150,6 +173,32 @@ run_update 0.150.1 0.151.0 "$latest_releases" env
 assert_log_contains 'curl <-'
 assert_log_contains '/repos/openai/codex/releases?per_page=100'
 assert_log_contains 'nix-update <codex> <--flake> <--version=0.151.0> <--override-filename=package.nix>'
+
+# A transient GitHub API transport failure must not abort the scheduled update.
+TEST_VERSION_ARGUMENTS=()
+: >"$TEST_CURL_ATTEMPT_FILE"
+run_update 0.150.1 0.151.0 "$latest_releases" \
+  env \
+    TEST_CURL_ATTEMPT_FILE="$TEST_CURL_ATTEMPT_FILE" \
+    TEST_CURL_FAILURES_BEFORE_SUCCESS=2
+assert_log_contains 'nix-update <codex> <--flake> <--version=0.151.0> <--override-filename=package.nix>'
+
+# A persistent GitHub API failure must stop after the bounded retry budget.
+TEST_VERSION_ARGUMENTS=()
+: >"$TEST_CURL_ATTEMPT_FILE"
+set +e
+run_update 0.150.1 0.151.0 "$latest_releases" \
+  env \
+    TEST_CURL_ATTEMPT_FILE="$TEST_CURL_ATTEMPT_FILE" \
+    TEST_CURL_FAILURES_BEFORE_SUCCESS=4
+persistent_curl_status=$?
+set -e
+[[ $persistent_curl_status -eq 1 ]] ||
+  fail "persistent curl failure status was $persistent_curl_status, expected 1"
+read -r persistent_curl_attempts <"$TEST_CURL_ATTEMPT_FILE"
+[[ $persistent_curl_attempts -eq 4 ]] ||
+  fail "persistent curl failure made $persistent_curl_attempts attempts, expected 4"
+assert_log_excludes 'nix-update'
 
 # Skipping exact release validation would allow a different or prerelease tag.
 TEST_VERSION_ARGUMENTS=(0.151.0)

@@ -28,13 +28,31 @@ github_api() {
     -H 'Accept: application/vnd.github+json'
     -H 'X-GitHub-Api-Version: 2026-03-10'
   )
+  local attempt
+  local curl_status
+  local response
 
   if [[ -n ${GITHUB_TOKEN:-} ]]; then
     headers+=(-H "Authorization: Bearer $GITHUB_TOKEN")
   fi
 
-  curl --fail-with-body --silent --show-error --location \
-    "${headers[@]}" "$1"
+  for ((attempt = 1; attempt <= 4; attempt++)); do
+    if response=$(curl --fail-with-body --silent --show-error --location \
+      "${headers[@]}" "$1"); then
+      printf '%s\n' "$response"
+      return 0
+    else
+      curl_status=$?
+    fi
+
+    if ((attempt == 4)); then
+      return "$curl_status"
+    fi
+
+    printf 'codex updater: GitHub API request failed; retrying (%d/4)\n' \
+      "$((attempt + 1))" >&2
+    sleep "$((attempt * 2))"
+  done
 }
 
 (($# <= 1)) || usage
