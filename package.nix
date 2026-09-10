@@ -14,20 +14,20 @@ let
 in
 rustPlatform.buildRustPackage rec {
   pname = "codex-palette-patched";
-  version = "0.153.4";
+  version = "0.154.0";
 
   src = fetchFromGitHub {
     owner = "openai";
     repo = "codex";
     rev = "rust-v${version}";
-    hash = "sha256-lHiDj5SodaM3mh8goMm6esfejeAT+Y3JJWrRnyj6sJo=";
+    hash = "sha256-Nm+61N6YHxGhjLsm/giVSEg4QvJmIgWxyTQ1L89kpCs=";
   };
 
   patches = [ ./patches/live-palette-refresh.patch ];
 
   cargoRoot = "codex-rs";
   buildAndTestSubdir = "codex-rs";
-  cargoHash = "sha256-GG6kOXmCdq+bZLU2ul0DIVL8lDuweayvZvXn6+bcUZw=";
+  cargoHash = "sha256-9F8dyEiVkhelrIyfQ9ZkvuxfIYNN6akbpadREa4A1n0=";
   cargoBuildFlags = [
     "-p"
     "codex-cli"
