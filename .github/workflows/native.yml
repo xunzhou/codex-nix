@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Supported version (empty builds all manifest releases)
+        description: Current manifest version (empty selects it automatically)
         type: string
         default: ''
   workflow_call:

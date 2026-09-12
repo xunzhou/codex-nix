@@ -41,19 +41,6 @@
     }
   },
   "releases": {
-    "0.153.4": {
-      "profile": "v8-150.4.0",
-      "source": {
-        "url": "https://github.com/openai/codex/archive/refs/tags/rust-v0.153.4.tar.gz",
-        "sha256": "74d988c0e154aad2b8d0cca4e950fc97fe2a29ff5ebe3b0070cce6d949c9a307",
-        "nar_hash": "sha256-lHiDj5SodaM3mh8goMm6esfejeAT+Y3JJWrRnyj6sJo="
-      },
-      "patches": [
-        "live-palette-refresh.patch",
-        "double-esc-interrupt.patch"
-      ],
-      "cargo_hash": "sha256-GG6kOXmCdq+bZLU2ul0DIVL8lDuweayvZvXn6+bcUZw="
-    },
     "0.154.0": {
       "profile": "v8-150.4.0",
       "source": {
@@ -63,7 +50,7 @@
       },
       "patches": [
         "live-palette-refresh.patch",
-        "double-esc-interrupt-0.154.0.patch"
+        "double-esc-interrupt.patch"
       ],
       "cargo_hash": "sha256-9F8dyEiVkhelrIyfQ9ZkvuxfIYNN6akbpadREa4A1n0="
     }

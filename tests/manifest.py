@@ -37,13 +37,13 @@ class UpdateTests(unittest.TestCase):
                 archive.add(self.source.parent, arcname='release')
         return subprocess.CompletedProcess(args, 0, stdout='sha256-source\n')
 
-    def test_updates_shared_source_pins_and_preserves_previous_release(self):
+    def test_updates_shared_source_pins_and_replaces_previous_release(self):
         mismatch = subprocess.CompletedProcess([], 1, stdout='', stderr='got: sha256-'+'A'*43+'=')
         with mock.patch.object(UPDATER, 'command', side_effect=self.command) as commands, mock.patch.object(UPDATER.subprocess, 'run', return_value=mismatch):
             UPDATER.update(self.root, '0.2.0')
         result = json.loads(self.manifest.read_text())
         self.assertEqual(result['default_version'], '0.2.0')
-        self.assertEqual(result['releases']['0.1.0'], self.data['releases']['0.1.0'])
+        self.assertEqual(list(result['releases']), ['0.2.0'])
         self.assertEqual(result['releases']['0.2.0']['source']['nar_hash'], 'sha256-source')
         self.assertEqual(len(result['releases']['0.2.0']['source']['sha256']), 64)
         self.assertTrue(any(call.args[:3] == ('nix','build','--no-link') for call in commands.call_args_list))

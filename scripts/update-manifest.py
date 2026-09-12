@@ -55,7 +55,7 @@ def update(root, version):
             sha256 = hashlib.file_digest(stream, 'sha256').hexdigest()
         recipe['source'] = {'url': url, 'sha256': sha256, 'nar_hash': nar_hash}
         recipe['cargo_hash'] = 'sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='
-        data['releases'][version] = recipe
+        data['releases'] = {version: recipe}
         data['default_version'] = version
         try:
             manifest.write_text(json.dumps(data, indent=2) + '\n')

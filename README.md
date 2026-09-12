@@ -53,15 +53,16 @@ to validate input handling and rendered hints when updating Codex.
 
 ## Shared build definition
 
-`build.json` is the build definition for both backends. It records each supported
+`build.json` is the build definition for both backends. It records the current
 release's source URL, archive SHA-256, Nix source hash, ordered patches, and Cargo
 vendor hash. Shared profiles pin native inputs such as V8 and assert the matching
 crate versions. The binary list, Cargo packages, marker checks, and smoke commands
 are shared too. `package.nix` reads this definition directly; it contains no
 release-specific source, patch, or V8 pins.
 
-The shared default is 0.154.0; the manifest also retains 0.153.4. To evaluate
-another declared release, override `releaseVersion` on the Nix package.
+The manifest supports the current version only (0.154.0). Patches use stable
+filenames and are maintained in place for that version; older versions remain
+available in Git history. Successful updates replace the previous release entry.
 
 `scripts/update.sh VERSION` validates an upstream stable release and invokes
 `scripts/update-manifest.py`. It verifies source version, patch application, and
@@ -114,7 +115,7 @@ string for a user-owned npm installation.
 ## Native build workflow
 
 `.github/workflows/native.yml` runs for relevant changes on main and can be
-started manually. It builds all declared releases, or a selected version, with
+started manually. It builds the current manifest version with
 no npm installation or Nix dependency:
 
 ```sh
