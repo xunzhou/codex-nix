@@ -50,3 +50,40 @@ distinguish a held Escape from repeated taps.
 The source patch targets the pinned Codex version and is applied after the
 palette patch. Run `cargo test -p codex-tui --lib` in the patched source tree
 to validate input handling and rendered hints when updating Codex.
+
+## Linux npm installation (without Nix)
+
+The generic source patcher supports npm-managed Codex 0.153.4 and 0.154.0.
+It selects an explicit patch series for the installed version, applies the
+palette and double-Escape patches, and builds both `codex` and
+`codex-code-mode-host`. Nix is not required. Python 3.12+, Git, Cargo/Rust,
+the upstream Linux build dependencies, curl, grep, and strip are required.
+
+Install the patcher and replace the old palette-only step in `bin/update-agents`:
+
+```sh
+python3 scripts/setup-source-patcher.py
+```
+
+This installs `bin/install-patched-codex` and its files under
+`.local/share/codex-patcher` in your home directory. It saves the original
+updater as `bin/update-agents.before-source-patcher`. Setup does not run the
+updater or restart services. Then run `install-patched-codex`, or let
+`update-agents` call it after the npm update.
+
+Cache identity includes the complete ordered patch set, installer, version,
+and platform. Both cached binaries have recorded SHA-256 digests; npm replacing
+either binary triggers restoration, and changing a patch forces a build.
+Release build intermediates remain in the cache for subsequent builds.
+Installation stages both binaries, replaces the CLI last, and rolls back on
+failure. An unknown release stops with a missing-patch-series error; add and
+verify `patches/series/VERSION.json` before supporting another release.
+
+The main overrides are `CODEX_PACKAGE_ROOT`, `CODEX_MANAGED_ENTRYPOINT`,
+`CODEX_PATCH_ROOT`, `CODEX_PATCH_CACHE`, and `CODEX_SOURCE_ARCHIVE`.
+`CODEX_PRIVILEGE_COMMAND` defaults to `sudo`; set it to an empty string for a
+user-owned npm installation. Run the installer tests with:
+
+```sh
+python3 tests/source-patcher.py
+```

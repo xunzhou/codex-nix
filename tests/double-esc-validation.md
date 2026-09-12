@@ -22,3 +22,16 @@ only the wider Escape sequence hint and its resulting wrapping.
 Coverage includes first-tap suppression, timeout, intervening input, turn
 boundaries, key repeats/releases, goal pause, pending steers, Vim Escape,
 popup dismissal, and remapped interruption. No release binary was installed.
+
+## Linux npm source installer and Codex 0.154.0
+
+The 0.154.0 port compiles and passes all 110 tests matching `esc`, including
+normal and hidden-status interruption, goals, steers, popup dismissal, and Vim.
+Both patches pass `git apply --check` against the official 0.154.0 archive,
+which also passes Python's safe archive extraction filter.
+
+Six installer integration tests pass: full patch-set invalidation, binary-pair
+cache restoration, corrupt cache recovery, unsupported versions/build failure,
+ordered patch application, rollback, and idempotent updater setup are covered.
+The setup helper is prepared; no live updater files or npm binaries were changed
+from this development workspace.

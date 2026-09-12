@@ -235,7 +235,7 @@ privacy_patterns=(
   '/ro''ot(/|[^[:alnum:]_.-]|$)'
   '[A-Za-z]:\\Us''ers\\[[:alnum:]_.-]+(\\|[^[:alnum:]_.-]|$)'
   '-----BEGIN [A-Z0-9 ]*PRIVATE'' KEY-----'
-  '(gh[a-z]|github_pat|glpat|xox[baprs])_[[:alnum:]_-]{16,}'
+  '(^|[^[:alnum:]_])(gh[a-z]|github_pat|glpat|xox[baprs])_[[:alnum:]_-]{16,}'
   'AKIA[0-9A-Z]{16}'
   "(password|passwd|secret|api[_-]?(key|token)|access[_-]?token|auth[_-]?token)[[:space:]]*[:=][[:space:]]*[\"']?[^\"'[:space:]]+"
   '(git\+)?ss''h://'

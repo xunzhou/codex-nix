@@ -1,0 +1,9 @@
+{
+  "patches": [
+    "live-palette-refresh.patch",
+    "double-esc-interrupt-0.154.0.patch"
+  ],
+  "markers": [
+    "terminal palette refresh did not return default colors"
+  ]
+}
