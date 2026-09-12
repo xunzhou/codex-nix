@@ -48,6 +48,7 @@ def main():
     (destination / "scripts").mkdir(parents=True, exist_ok=True)
     shutil.copytree(root / "patches", destination / "patches", dirs_exist_ok=True)
     installer = destination / "scripts/install-source-codex.py"
+    atomic_write(destination / "build.json", (root / "build.json").read_text(), 0o644)
     atomic_write(installer, (root / "scripts/install-source-codex.py").read_text(), 0o755)
     atomic_write(command, f"#!/bin/sh\nexec python3 {shlex.quote(str(installer))} \"$@\"\n", 0o755)
     if updated != current:

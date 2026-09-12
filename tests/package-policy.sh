@@ -17,8 +17,8 @@ cleanup_script="$repo_root/scripts/reclaim-runner-disk.sh"
 test -f "$repo_root/package.nix"
 test -f "$repo_root/patches/live-palette-refresh.patch"
 grep -Fq 'rustPlatform.buildRustPackage' "$repo_root/package.nix"
-grep -Fq '"codex-cli"' "$repo_root/package.nix"
-grep -Fq '"codex-code-mode-host"' "$repo_root/package.nix"
+grep -Fq '"codex-cli"' "$repo_root/build.json"
+grep -Fq '"codex-code-mode-host"' "$repo_root/build.json"
 grep -Fq 'requiredSystemFeatures = [ "codex-artifact-publisher" ];' "$repo_root/package.nix"
 grep -Fq 'systems = [ "x86_64-linux" ];' "$repo_root/flake.nix"
 
@@ -85,14 +85,19 @@ fi
 
 patch_test_root="$cleanup_test_directory/patch"
 cp -R --no-preserve=mode "$patch_source" "$patch_test_root"
-if ! patch --batch --forward -d "$patch_test_root" -p1 \
-  <"$repo_root/patches/live-palette-refresh.patch" >/dev/null; then
-  fail 'live palette patch does not apply to the Codex source'
-fi
-if ! patch --batch --forward -d "$patch_test_root" -p1 \
-  <"$repo_root/patches/double-esc-interrupt.patch" >/dev/null; then
-  fail 'double Escape patch does not apply after the palette patch'
-fi
+mapfile -t recipe_patches < <(python3 - "$repo_root/build.json" <<'PYCODE'
+import json, sys
+with open(sys.argv[1]) as stream:
+    manifest = json.load(stream)
+print("\n".join(manifest['releases'][manifest['default_version']]['patches']))
+PYCODE
+)
+for recipe_patch in "${recipe_patches[@]}"; do
+  if ! patch --batch --forward --fuzz=0 -d "$patch_test_root" -p1 \
+    <"$repo_root/patches/$recipe_patch" >/dev/null; then
+    fail "manifest patch does not apply: $recipe_patch"
+  fi
+done
 
 patched_palette="$patch_test_root/codex-rs/tui/src/terminal_palette.rs"
 patched_events="$patch_test_root/codex-rs/tui/src/tui/event_stream.rs"

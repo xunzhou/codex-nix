@@ -28,6 +28,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 tests/source-patcher.py
+          python3 tests/manifest.py
           bash tests/package-policy.sh
           bash tests/update.sh
           bash tests/bundle.sh

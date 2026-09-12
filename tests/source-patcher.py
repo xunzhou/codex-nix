@@ -4,6 +4,7 @@ import json
 import hashlib
 import importlib.util
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -70,9 +71,8 @@ class SourcePatcherTests(unittest.TestCase):
         for name in ('codex', 'codex-code-mode-host'):
             (self.vendor / name).write_text('stock ' + name)
         self.patches = self.root / 'patches'
-        (self.patches / 'series').mkdir(parents=True)
+        self.patches.mkdir(parents=True)
         self.spec = {'patches': ['first.patch', 'second.patch'], 'markers': ['palette-marker']}
-        self.write_spec()
         for name, before, after in [('first', 'before', 'middle'), ('second', 'middle', 'after')]:
             (self.patches / f'{name}.patch').write_text(f'--- a/codex-rs/probe\n+++ b/codex-rs/probe\n@@ -1 +1 @@\n-{before}\n+{after}\n')
         source = self.root / 'source/release/codex-rs'
@@ -98,18 +98,59 @@ for name in ('codex','codex-code-mode-host'):
  f=p/name;f.write_text('#!/bin/sh\\n# palette-marker\\n# '+name+'\\necho "codex-cli 0.154.0"\\n');f.chmod(0o755)
 ''')
         cargo.chmod(0o755)
-        self.env = dict(os.environ, CODEX_PACKAGE_ROOT=str(self.package), CODEX_PATCH_ROOT=str(self.patches), CODEX_SOURCE_ARCHIVE=str(self.archive), CODEX_PATCH_CACHE=str(self.root / 'cache'), CODEX_CARGO_COMMAND=str(cargo), CODEX_STRIP_COMMAND='true', CODEX_PRIVILEGE_COMMAND='', BUILD_COUNT=str(self.root / 'count'))
+        self.write_spec()
+        self.env = dict(os.environ, CODEX_INSTALL_MODE='source', CODEX_PACKAGE_ROOT=str(self.package), CODEX_PATCH_ROOT=str(self.patches), CODEX_SOURCE_ARCHIVE=str(self.archive), CODEX_PATCH_CACHE=str(self.root / 'cache'), CODEX_CARGO_COMMAND=str(cargo), CODEX_STRIP_COMMAND='true', CODEX_PRIVILEGE_COMMAND='', BUILD_COUNT=str(self.root / 'count'))
 
     def write_spec(self):
-        (self.patches / 'series/0.154.0.json').write_text(json.dumps(self.spec))
+        release = dict(self.spec, profile='test', source={'url':'https://example.invalid/source.tar.gz','sha256':hashlib.sha256(self.archive.read_bytes()).hexdigest()})
+        manifest = {'schema_version':1,'default_version':'0.154.0','release_repository':'example/test','profiles':{'test':{}},
+                    'build':{'binaries':{'codex-code-mode-host':{'package':'codex-code-mode-host','smoke_args':['--help']},'codex':{'package':'codex-cli','smoke_args':['--version']}}},
+                    'releases':{'0.154.0':release}}
+        (self.root / 'build.json').write_text(json.dumps(manifest))
 
-    def invoke(self, success=True, **env):
-        result = subprocess.run([sys.executable, str(INSTALLER)], env=dict(self.env, **env), capture_output=True, text=True)
+    def invoke(self, success=True, args=(), **env):
+        result = subprocess.run([sys.executable, str(INSTALLER), *args], env=dict(self.env, **env), capture_output=True, text=True)
         if success:
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         else:
             self.assertNotEqual(result.returncode, 0)
         return result
+
+    def test_ci_bundle_download_installs_without_cargo(self):
+        archive = self.root / 'published.tar.gz'
+        self.invoke(args=('--build-only', '--version', '0.154.0', '--output', str(archive)))
+        self.assertEqual((self.vendor / 'codex').read_text(), 'stock codex')
+        for cached in (self.root / 'cache').glob('0.154.0-*'):
+            shutil.rmtree(cached)
+        commands = self.root / 'commands'
+        commands.mkdir()
+        curl = commands / 'curl'
+        curl.write_text('''#!/usr/bin/env python3
+import os,shutil,sys
+assert '/releases/download/native-0.154.0-' in sys.argv[-1]
+shutil.copyfile(os.environ['PUBLISHED_BUNDLE'],sys.argv[sys.argv.index('--output')+1])
+print('200',end='')
+''')
+        curl.chmod(0o755)
+        self.invoke(CODEX_INSTALL_MODE='download', PUBLISHED_BUNDLE=str(archive),
+                    PATH=str(commands)+os.pathsep+os.environ['PATH'], FAIL_BUILD='1')
+        self.assertEqual((self.root / 'count').read_text(), '1')
+        self.assertIn('palette-marker', (self.vendor / 'codex').read_text())
+
+    def test_unexpected_archive_bytes_fail_before_cargo(self):
+        self.archive.write_bytes(b'not the pinned source')
+        result = self.invoke(success=False)
+        self.assertIn('source archive checksum mismatch', result.stderr)
+        self.assertFalse((self.root / 'count').exists())
+
+    def test_download_rejects_recipe_mismatch(self):
+        archive = self.root / 'published.tar.gz'
+        self.invoke(args=('--build-only', '--version', '0.154.0', '--output', str(archive)))
+        spec = PATCHER.load_recipe(self.root / 'build.json', '0.154.0')
+        with mock.patch.object(PATCHER, 'http_download', side_effect=lambda url, out: (shutil.copyfile(archive, out), True)[1]):
+            with self.assertRaisesRegex(ValueError, 'does not match'):
+                PATCHER.download_bundle(spec, 'wrong-recipe', self.root / 'cache', self.root / 'destination', '0.154.0', ['codex', 'codex-code-mode-host'])
+        self.assertFalse((self.root / 'destination').exists())
 
     def test_cache_restores_both_binaries_and_patch_change_rebuilds(self):
         self.invoke()
@@ -177,7 +218,7 @@ sys.exit(subprocess.call(args))
         self.assertEqual(updater.with_name('update-agents.before-source-patcher').read_text(), before)
         subprocess.run(command, check=True, capture_output=True)
         self.assertEqual(updater.read_text(), after)
-        self.assertTrue((prefix / '.local/share/codex-patcher/patches/series/0.154.0.json').is_file())
+        self.assertTrue((prefix / '.local/share/codex-patcher/build.json').is_file())
 
 
 if __name__ == '__main__':

@@ -49,13 +49,6 @@ jobs:
           extra_nix_config: |
             system-features = benchmark big-parallel kvm nixos-test codex-artifact-publisher
 
-      - name: Install nix-update
-        shell: bash
-        run: |
-          set -euo pipefail
-          # nix-update v1.16.0
-          nix profile install 'github:Mic92/nix-update/f1312346bf252dc10a0b6f70aae80c0a32395c5c#nix-update'
-
       - name: Reclaim disk space for Codex build
         shell: bash
         run: |
@@ -101,11 +94,11 @@ jobs:
           set -euo pipefail
           mapfile -t changed_files < <(git diff --name-only)
           [[ ${#changed_files[@]} -eq 1 ]]
-          [[ ${changed_files[0]} == package.nix ]]
+          [[ ${changed_files[0]} == build.json ]]
 
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- package.nix
+          git add -- build.json
           git diff --cached --check
           git diff --cached --quiet && exit 1
           git commit -m "codex: update to $VERSION"
@@ -133,3 +126,12 @@ jobs:
     permissions:
       contents: read
     uses: ./.github/workflows/install-smoke.yml
+
+  native:
+    name: Build regular Linux release
+    needs: update
+    permissions:
+      contents: write
+    uses: ./.github/workflows/native.yml
+    with:
+      ref: main

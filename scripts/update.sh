@@ -118,8 +118,8 @@ if [[ "$current_version" == "$version" ]]; then
   exit "$already_current_exit"
 fi
 
-nix-update codex --flake --version="$version" --override-filename=package.nix ||
-  fail "could not update package.nix for $release_tag"
+python3 scripts/update-manifest.py "$version" ||
+  fail "could not update build.json for $release_tag"
 
 git diff --check || fail 'updated files contain whitespace errors'
 nix flake check --no-build || fail 'flake evaluation failed'

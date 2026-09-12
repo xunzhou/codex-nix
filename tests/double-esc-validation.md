@@ -41,3 +41,20 @@ archive and bindings and matching both hashes against the existing Nix pins.
 `cargo check -p codex-code-mode-host --offline --locked` succeeds on 0.154.0
 with these inputs. All eight source-installer tests pass, including native
 asset checksum rejection, cache validation, and explicit environment overrides.
+
+## Shared recipe and GitHub native bundles
+
+Both Nix and native installers now resolve the same recipe from `build.json`.
+The resolved recipe comparison passed. Nix verified the 0.154.0 Cargo dependency
+hash; it matches the upstream repository's published 0.154.0 pin. The Nix package
+policy suite, release updater suite, and existing bundle suite pass.
+
+Eleven native installer tests and three manifest updater tests pass, including
+building a CI-style archive and installing it with Cargo deliberately disabled,
+recipe mismatch rejection, pinned source integrity, and failed-update rollback.
+The native Actions workflow passes actionlint. The existing update workflow's
+pre-existing `concurrency.queue` key is newer than the installed actionlint;
+checking that workflow with only this known diagnostic excluded passes.
+
+The regular release build itself is scheduled by the new GitHub workflow after
+it lands; no native GitHub asset has been published from this worktree.

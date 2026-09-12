@@ -2,72 +2,53 @@
   lib,
   stdenv,
   rustPlatform,
-  fetchFromGitHub,
+  fetchzip,
   fetchurl,
   pkg-config,
   openssl,
+  releaseVersion ? null,
 }:
-
 let
-  marker = "terminal palette refresh did not return default colors";
-  rustyV8Release = "https://github.com/openai/codex/releases/download/rusty-v8-v150.4.0";
+  manifest = builtins.fromJSON (builtins.readFile ./build.json);
+  version = if releaseVersion == null then manifest.default_version else releaseVersion;
+  release = manifest.releases.${version};
+  recipe = manifest.build // manifest.profiles.${release.profile} // release;
+  binaries = builtins.attrNames recipe.binaries;
+  marker = builtins.head recipe.markers;
+  assets = lib.mapAttrs (_: asset: fetchurl {
+    inherit (asset) url sha256;
+  }) recipe.build_assets.${stdenv.hostPlatform.rust.rustcTarget};
 in
-rustPlatform.buildRustPackage rec {
+rustPlatform.buildRustPackage ({
   pname = "codex-palette-patched";
-  version = "0.153.4";
-
-  src = fetchFromGitHub {
-    owner = "openai";
-    repo = "codex";
-    rev = "rust-v${version}";
-    hash = "sha256-lHiDj5SodaM3mh8goMm6esfejeAT+Y3JJWrRnyj6sJo=";
+  inherit version;
+  src = fetchzip {
+    url = recipe.source.url;
+    hash = recipe.source.nar_hash;
   };
-
-  patches = [
-    ./patches/live-palette-refresh.patch
-    ./patches/double-esc-interrupt.patch
-  ];
-
+  patches = map (name: ./patches + "/${name}") recipe.patches;
   cargoRoot = "codex-rs";
   buildAndTestSubdir = "codex-rs";
-  cargoHash = "sha256-GG6kOXmCdq+bZLU2ul0DIVL8lDuweayvZvXn6+bcUZw=";
-  cargoBuildFlags = [
-    "-p"
-    "codex-cli"
-    "-p"
-    "codex-code-mode-host"
-  ];
+  cargoHash = recipe.cargo_hash;
+  cargoBuildFlags = lib.concatMap (name: [ "-p" recipe.binaries.${name}.package ]) binaries;
   preBuild = ''
     export NIX_BUILD_CORES=2
   '';
-
-  RUSTY_V8_ARCHIVE = fetchurl {
-    url = "${rustyV8Release}/librusty_v8_ptrcomp_sandbox_release_x86_64-unknown-linux-gnu.a.gz";
-    hash = "sha256-o1x10fJuapg4haRbM0kKTr5U8FBQVosyuJz7QhswtYM=";
-  };
-  RUSTY_V8_SRC_BINDING_PATH = fetchurl {
-    url = "${rustyV8Release}/src_binding_ptrcomp_sandbox_release_x86_64-unknown-linux-gnu.rs";
-    hash = "sha256-dyeCauR5vbZF6Acjn7EtH44uI956bPFvXuWSaQ0dhQY=";
-  };
-
   requiredSystemFeatures = [ "codex-artifact-publisher" ];
   doCheck = false;
-
   nativeBuildInputs = [ pkg-config ];
   buildInputs = [ openssl ];
-
   installPhase = ''
     runHook preInstall
-
-    install -Dm755 target/${stdenv.hostPlatform.rust.rustcTarget}/release/codex "$out/bin/codex"
-    install -Dm755 target/${stdenv.hostPlatform.rust.rustcTarget}/release/codex-code-mode-host "$out/bin/codex-code-mode-host"
-    grep -aFqm1 ${lib.escapeShellArg marker} "$out/bin/codex"
-
+    ${lib.concatMapStringsSep "\n" (name: ''
+      install -Dm755 target/${stdenv.hostPlatform.rust.rustcTarget}/release/${name} "$out/bin/${name}"
+      "$out/bin/${name}" ${lib.escapeShellArgs recipe.binaries.${name}.smoke_args} >/dev/null
+    '') binaries}
+    ${lib.concatMapStringsSep "\n" (text: ''grep -aFqm1 ${lib.escapeShellArg text} "$out/bin/codex"'') recipe.markers}
     runHook postInstall
   '';
-
   passthru = {
-    inherit marker;
-    patchFile = ./patches/live-palette-refresh.patch;
+    inherit marker recipe;
+    patchFile = ./patches + "/${builtins.head recipe.patches}";
   };
-}
+} // assets)

@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "default_version": "0.154.0",
+  "release_repository": "xunzhou/codex-nix",
+  "build": {
+    "binaries": {
+      "codex-code-mode-host": {
+        "package": "codex-code-mode-host",
+        "smoke_args": [
+          "--help"
+        ]
+      },
+      "codex": {
+        "package": "codex-cli",
+        "smoke_args": [
+          "--version"
+        ]
+      }
+    },
+    "markers": [
+      "terminal palette refresh did not return default colors"
+    ]
+  },
+  "profiles": {
+    "v8-150.4.0": {
+      "crate_versions": {
+        "v8": "150.4.0"
+      },
+      "build_assets": {
+        "x86_64-unknown-linux-gnu": {
+          "RUSTY_V8_ARCHIVE": {
+            "url": "https://github.com/openai/codex/releases/download/rusty-v8-v150.4.0/librusty_v8_ptrcomp_sandbox_release_x86_64-unknown-linux-gnu.a.gz",
+            "sha256": "a35c75d1f26e6a983885a45b33490a4ebe54f05050568b32b89cfb421b30b583"
+          },
+          "RUSTY_V8_SRC_BINDING_PATH": {
+            "url": "https://github.com/openai/codex/releases/download/rusty-v8-v150.4.0/src_binding_ptrcomp_sandbox_release_x86_64-unknown-linux-gnu.rs",
+            "sha256": "7727826ae479bdb645e807239fb12d1f8e2e23de7a6cf16f5ee592690d1d8506"
+          }
+        }
+      }
+    }
+  },
+  "releases": {
+    "0.153.4": {
+      "profile": "v8-150.4.0",
+      "source": {
+        "url": "https://github.com/openai/codex/archive/refs/tags/rust-v0.153.4.tar.gz",
+        "sha256": "74d988c0e154aad2b8d0cca4e950fc97fe2a29ff5ebe3b0070cce6d949c9a307",
+        "nar_hash": "sha256-lHiDj5SodaM3mh8goMm6esfejeAT+Y3JJWrRnyj6sJo="
+      },
+      "patches": [
+        "live-palette-refresh.patch",
+        "double-esc-interrupt.patch"
+      ],
+      "cargo_hash": "sha256-GG6kOXmCdq+bZLU2ul0DIVL8lDuweayvZvXn6+bcUZw="
+    },
+    "0.154.0": {
+      "profile": "v8-150.4.0",
+      "source": {
+        "url": "https://github.com/openai/codex/archive/refs/tags/rust-v0.154.0.tar.gz",
+        "sha256": "1c4cdc3b87ba290b5d110425b4f6ff21663e236580bc760d1e149bd2d9f9519f",
+        "nar_hash": "sha256-Nm+61N6YHxGhjLsm/giVSEg4QvJmIgWxyTQ1L89kpCs="
+      },
+      "patches": [
+        "live-palette-refresh.patch",
+        "double-esc-interrupt-0.154.0.patch"
+      ],
+      "cargo_hash": "sha256-9F8dyEiVkhelrIyfQ9ZkvuxfIYNN6akbpadREa4A1n0="
+    }
+  }
+}
