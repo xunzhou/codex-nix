@@ -35,3 +35,9 @@ cache restoration, corrupt cache recovery, unsupported versions/build failure,
 ordered patch application, rollback, and idempotent updater setup are covered.
 The setup helper is prepared; no live updater files or npm binaries were changed
 from this development workspace.
+
+The V8 download fix was verified by downloading the OpenAI-hosted 150.4.0
+archive and bindings and matching both hashes against the existing Nix pins.
+`cargo check -p codex-code-mode-host --offline --locked` succeeds on 0.154.0
+with these inputs. All eight source-installer tests pass, including native
+asset checksum rejection, cache validation, and explicit environment overrides.

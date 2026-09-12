@@ -82,7 +82,11 @@ verify `patches/series/VERSION.json` before supporting another release.
 The main overrides are `CODEX_PACKAGE_ROOT`, `CODEX_MANAGED_ENTRYPOINT`,
 `CODEX_PATCH_ROOT`, `CODEX_PATCH_CACHE`, and `CODEX_SOURCE_ARCHIVE`.
 `CODEX_PRIVILEGE_COMMAND` defaults to `sudo`; set it to an empty string for a
-user-owned npm installation. Run the installer tests with:
+user-owned npm installation. The x86_64 GNU/Linux patch series also pins the
+V8 archive and generated Rust bindings from OpenAI's Codex release. The patcher
+verifies their SHA-256 digests and caches them before invoking Cargo, avoiding
+the missing default rusty_v8 release assets. Explicit `RUSTY_V8_ARCHIVE` and
+`RUSTY_V8_SRC_BINDING_PATH` overrides remain supported. Run the installer tests with:
 
 ```sh
 python3 tests/source-patcher.py

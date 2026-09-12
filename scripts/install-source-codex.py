@@ -16,6 +16,7 @@ import sys
 import tarfile
 import tempfile
 import tomllib
+from urllib.parse import urlparse
 
 
 BINARIES = ("codex-code-mode-host", "codex")  # Install the CLI last.
@@ -28,6 +29,38 @@ def run(*args, **kwargs):
 def digest(path):
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def prepare_build_assets(spec, cache, env):
+    """Pin native build inputs independently of the crate's default download host."""
+    assets = spec.get("build_assets")
+    if not assets or env.get("V8_FROM_SOURCE"):
+        return
+    if env.get("RUSTY_V8_ARCHIVE") and env.get("RUSTY_V8_SRC_BINDING_PATH"):
+        return
+    target = env.get("CARGO_BUILD_TARGET")
+    if not target:
+        output = subprocess.check_output([env.get("RUSTC", "rustc"), "-vV"], text=True, env=env)
+        target = next((line.removeprefix("host: ") for line in output.splitlines() if line.startswith("host: ")), None)
+    if target not in assets:
+        raise ValueError(f"no pinned build assets for Rust target {target}; supply both RUSTY_V8_ARCHIVE and RUSTY_V8_SRC_BINDING_PATH")
+    directory = (cache / "assets").resolve()
+    directory.mkdir(parents=True, exist_ok=True)
+    for variable, asset in assets[target].items():
+        if env.get(variable):
+            continue
+        checksum = asset["sha256"]
+        if not re.fullmatch(r"[a-f0-9]{64}", checksum):
+            raise ValueError(f"invalid checksum for {variable}")
+        destination = directory / (checksum + "-" + Path(urlparse(asset["url"]).path).name)
+        if not destination.is_file() or digest(destination) != checksum:
+            with tempfile.TemporaryDirectory(prefix="download-", dir=directory) as temporary:
+                download = Path(temporary) / "asset"
+                run("curl", "-fL", "--retry", "3", "-o", str(download), asset["url"])
+                if digest(download) != checksum:
+                    raise ValueError(f"downloaded {variable} checksum mismatch")
+                download.replace(destination)
+        env[variable] = str(destination)
 
 
 def normalize_lock(source, version):
@@ -167,6 +200,7 @@ def main():
                 normalize_lock(source, version)
                 target = (cache / "build" / version).resolve()
                 env = dict(os.environ, CARGO_TARGET_DIR=str(target), GIT_CONFIG_GLOBAL="/dev/null", CARGO_NET_GIT_FETCH_WITH_CLI="true")
+                prepare_build_assets(spec, cache, env)
                 cargo = os.environ.get("CODEX_CARGO_COMMAND", "cargo")
                 print(f"Building Codex {version} with {len(patches)} patches", flush=True)
                 run(cargo, "metadata", "--locked", "--no-deps", "--format-version", "1", cwd=source / "codex-rs", env=env, stdout=subprocess.DEVNULL)

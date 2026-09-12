@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Exercise the source installer against an npm layout and fake Cargo builds."""
 import json
+import hashlib
+import importlib.util
 import os
 from pathlib import Path
 import subprocess
@@ -8,9 +10,52 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 INSTALLER = ROOT / 'scripts/install-source-codex.py'
+MODULE_SPEC = importlib.util.spec_from_file_location('source_patcher', INSTALLER)
+PATCHER = importlib.util.module_from_spec(MODULE_SPEC)
+MODULE_SPEC.loader.exec_module(PATCHER)
+
+
+class BuildAssetsTests(unittest.TestCase):
+    def test_pinned_assets_are_verified_cached_and_exported(self):
+        contents = b'test prebuilt input'
+        checksum = hashlib.sha256(contents).hexdigest()
+        spec = {'build_assets': {'test-target': {
+            name: {'url': 'https://example.invalid/' + name, 'sha256': checksum}
+            for name in ('RUSTY_V8_ARCHIVE', 'RUSTY_V8_SRC_BINDING_PATH')
+        }}}
+        def download(*args):
+            Path(args[5]).write_bytes(contents)
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(PATCHER, 'run', side_effect=download) as fetch:
+            cache = Path(directory)
+            env = {'CARGO_BUILD_TARGET': 'test-target'}
+            PATCHER.prepare_build_assets(spec, cache, env)
+            for name in spec['build_assets']['test-target']:
+                self.assertEqual(Path(env[name]).read_bytes(), contents)
+            self.assertEqual(fetch.call_count, 2)
+            PATCHER.prepare_build_assets(spec, cache, {'CARGO_BUILD_TARGET': 'test-target'})
+            self.assertEqual(fetch.call_count, 2)
+            Path(env['RUSTY_V8_ARCHIVE']).write_bytes(b'corrupt')
+            PATCHER.prepare_build_assets(spec, cache, {'CARGO_BUILD_TARGET': 'test-target'})
+            self.assertEqual(fetch.call_count, 3)
+
+    def test_bad_asset_is_rejected_and_explicit_overrides_are_preserved(self):
+        spec = {'build_assets': {'test-target': {'RUSTY_V8_ARCHIVE': {
+            'url': 'https://example.invalid/v8', 'sha256': '0' * 64
+        }}}}
+        def download(*args):
+            Path(args[5]).write_bytes(b'wrong checksum')
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(PATCHER, 'run', side_effect=download) as fetch:
+            env = {'CARGO_BUILD_TARGET': 'test-target'}
+            with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
+                PATCHER.prepare_build_assets(spec, Path(directory), env)
+            self.assertNotIn('RUSTY_V8_ARCHIVE', env)
+            overrides = {'RUSTY_V8_ARCHIVE': '/custom/archive', 'RUSTY_V8_SRC_BINDING_PATH': '/custom/bindings'}
+            PATCHER.prepare_build_assets(spec, Path(directory), overrides)
+            self.assertEqual(fetch.call_count, 1)
 
 
 class SourcePatcherTests(unittest.TestCase):
