@@ -37,3 +37,16 @@ kill -USR1 "$(pgrep -n codex)"
 
 GitHub Actions dependencies are pinned to full commits. Their version comments
 are updated intentionally through review rather than following floating refs.
+
+## Interrupt protection
+
+While a turn is running, press Escape twice within 400 ms to interrupt.
+A single Escape still dismisses menus and leaves Vim insert mode normally.
+Other keys and turn boundaries reset the pending tap; reported key repeats do
+not count as a second press. Ctrl-C and remapped interrupt keys keep their
+existing behavior. Terminals that report autorepeat as ordinary presses cannot
+distinguish a held Escape from repeated taps.
+
+The source patch targets the pinned Codex version and is applied after the
+palette patch. Run `cargo test -p codex-tui --lib` in the patched source tree
+to validate input handling and rendered hints when updating Codex.

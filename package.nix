@@ -23,7 +23,10 @@ rustPlatform.buildRustPackage rec {
     hash = "sha256-lHiDj5SodaM3mh8goMm6esfejeAT+Y3JJWrRnyj6sJo=";
   };
 
-  patches = [ ./patches/live-palette-refresh.patch ];
+  patches = [
+    ./patches/live-palette-refresh.patch
+    ./patches/double-esc-interrupt.patch
+  ];
 
   cargoRoot = "codex-rs";
   buildAndTestSubdir = "codex-rs";

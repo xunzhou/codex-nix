@@ -89,6 +89,10 @@ if ! patch --batch --forward -d "$patch_test_root" -p1 \
   <"$repo_root/patches/live-palette-refresh.patch" >/dev/null; then
   fail 'live palette patch does not apply to the Codex source'
 fi
+if ! patch --batch --forward -d "$patch_test_root" -p1 \
+  <"$repo_root/patches/double-esc-interrupt.patch" >/dev/null; then
+  fail 'double Escape patch does not apply after the palette patch'
+fi
 
 patched_palette="$patch_test_root/codex-rs/tui/src/terminal_palette.rs"
 patched_events="$patch_test_root/codex-rs/tui/src/tui/event_stream.rs"
