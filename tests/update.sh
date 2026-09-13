@@ -282,4 +282,9 @@ set -e
   fail 'build failure escaped as the already-current status'
 assert_log_excludes 'git <commit>'
 
+# Candidate preparation still validates the manifest and flake, but leaves builds to CI.
+run_update 0.150.1 0.151.0 "$(stable_release 0.151.0)" env CODEX_UPDATE_PREPARE_ONLY=1
+assert_log_contains 'manifest-update'
+assert_log_excludes 'nix <--extra-system-features> <codex-artifact-publisher> <build> <-L> <.#codex>'
+
 printf 'update tests: PASS\n'

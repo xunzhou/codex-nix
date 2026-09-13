@@ -2,6 +2,16 @@ name: Update Codex
 run-name: Update Codex (${{ inputs.request_id || 'scheduled' }})
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - build.json
+      - flake.nix
+      - flake.lock
+      - package.nix
+      - patches/**
+      - scripts/**
+      - .github/workflows/update.yml
   schedule:
     - cron: '17 8 * * *'
   workflow_dispatch:
@@ -17,121 +27,244 @@ on:
 
 concurrency:
   group: codex-update
-  # GitHub queues up to 100 pending runs; actionlint 1.7.12 does not parse this key yet.
+  # Keep candidate preparation, both builds, and publication in one serialized run.
   queue: max
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  update:
+  prepare:
     runs-on: ubuntu-24.04
+    outputs:
+      base: ${{ steps.candidate.outputs.base }}
+      sha: ${{ steps.candidate.outputs.sha }}
+      changed: ${{ steps.candidate.outputs.changed }}
+      version: ${{ steps.candidate.outputs.version }}
     steps:
-      - name: Check out main
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: main
+          ref: ${{ github.event_name == 'push' && github.sha || 'main' }}
           fetch-depth: 0
-
-      - name: Record checked-out main revision
-        id: base
-        shell: bash
-        run: |
-          set -euo pipefail
-          base_sha=$(git rev-parse HEAD)
-          [[ "$base_sha" =~ ^[0-9a-f]{40}$ ]]
-          printf 'sha=%s\n' "$base_sha" >>"$GITHUB_OUTPUT"
-
       - name: Install Nix
         uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           extra_nix_config: |
             system-features = benchmark big-parallel kvm nixos-test codex-artifact-publisher
-
-      - name: Reclaim disk space for Codex build
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo env \
-            GITHUB_ACTIONS="$GITHUB_ACTIONS" \
-            RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" \
-            bash scripts/reclaim-runner-disk.sh
-
-      - name: Update and validate
-        id: update
-        shell: bash
+      - name: Prepare candidate without publishing it
+        id: candidate
         env:
           GITHUB_TOKEN: ${{ github.token }}
           REQUESTED_VERSION: ${{ inputs.version }}
+          EVENT_NAME: ${{ github.event_name }}
+          CODEX_UPDATE_PREPARE_ONLY: '1'
         run: |
           set -euo pipefail
-          set +e
-          if [[ -n "$REQUESTED_VERSION" ]]; then
-            bash scripts/update.sh "$REQUESTED_VERSION"
-          else
-            bash scripts/update.sh
+          base_sha=$(git rev-parse HEAD)
+          changed=false
+          if [[ "$EVENT_NAME" != push ]]; then
+            set +e
+            if [[ -n "$REQUESTED_VERSION" ]]; then
+              bash scripts/update.sh "$REQUESTED_VERSION"
+            else
+              bash scripts/update.sh
+            fi
+            status=$?
+            set -e
+            case "$status" in
+              0) changed=true ;;
+              10) ;;
+              *) exit "$status" ;;
+            esac
           fi
-          update_status=$?
-          set -e
+          version=$(python3 -c 'import json; print(json.load(open("build.json"))["default_version"])')
+          if [[ "$changed" == true ]]; then
+            mapfile -t changed_files < <(git diff --name-only)
+            [[ ${#changed_files[@]} -eq 1 && ${changed_files[0]} == build.json ]]
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add build.json
+            git diff --cached --check
+            git commit -m "codex: update to $version"
+          fi
+          printf 'base=%s\nsha=%s\nchanged=%s\nversion=%s\n' \
+            "$base_sha" "$(git rev-parse HEAD)" "$changed" "$version" >>"$GITHUB_OUTPUT"
+          git bundle create "$RUNNER_TEMP/source.bundle" HEAD
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: release-source
+          path: ${{ runner.temp }}/source.bundle
+          retention-days: 14
 
-          case "$update_status" in
-            0) printf 'changed=true\n' >>"$GITHUB_OUTPUT" ;;
-            10) printf 'changed=false\n' >>"$GITHUB_OUTPUT" ;;
-            *) exit "$update_status" ;;
-          esac
-
-          version=$(nix eval --raw .#codex.version)
-          [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
-          printf 'version=%s\n' "$version" >>"$GITHUB_OUTPUT"
-
-      - name: Commit generated package update
-        if: steps.update.outputs.changed == 'true'
-        shell: bash
+  nix:
+    name: Build Nix closure
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.base }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-source
+          path: ${{ runner.temp }}/release-source
+      - name: Restore exact candidate commit
         env:
-          VERSION: ${{ steps.update.outputs.version }}
+          EXPECTED_SHA: ${{ needs.prepare.outputs.sha }}
+        run: |
+          git fetch "$RUNNER_TEMP/release-source/source.bundle" HEAD
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+          git checkout --detach "$EXPECTED_SHA"
+      - name: Install Nix
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            system-features = benchmark big-parallel kvm nixos-test codex-artifact-publisher
+      - name: Reclaim runner disk space
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" bash scripts/reclaim-runner-disk.sh
+      - name: Run validation suites
+        run: |
+          python3 tests/source-patcher.py
+          python3 tests/manifest.py
+          python3 tests/release.py
+          bash tests/package-policy.sh
+          bash tests/update.sh
+          bash tests/bundle.sh
+          nix flake check --no-build
+      - name: Build and prepare Nix release assets
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          nix --extra-system-features codex-artifact-publisher build -L .#codex
+          test "$(./result/bin/codex --version)" = "codex-cli $VERSION"
+          grep -aFqm1 'terminal palette refresh did not return default colors' ./result/bin/codex
+          ./result/bin/codex-code-mode-host --help >/dev/null
+          bash scripts/publish-bundle.sh --prepare-dir "$RUNNER_TEMP/nix-assets"
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: release-nix
+          path: ${{ runner.temp }}/nix-assets/*
+          retention-days: 14
+
+  native:
+    name: Build native Linux binaries
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      CARGO_BUILD_JOBS: 2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.base }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-source
+          path: ${{ runner.temp }}/release-source
+      - name: Restore exact candidate commit
+        env:
+          EXPECTED_SHA: ${{ needs.prepare.outputs.sha }}
+        run: |
+          git fetch "$RUNNER_TEMP/release-source/source.bundle" HEAD
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+          git checkout --detach "$EXPECTED_SHA"
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libssl-dev libcap-dev libasound2-dev clang cmake
+      - name: Reclaim runner disk space
+        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" bash scripts/reclaim-runner-disk.sh
+      - name: Build and verify native bundle
+        env:
+          CODEX_PATCH_CACHE: ${{ runner.temp }}/native-cache
         run: |
           set -euo pipefail
-          mapfile -t changed_files < <(git diff --name-only)
-          [[ ${#changed_files[@]} -eq 1 ]]
-          [[ ${changed_files[0]} == build.json ]]
+          python3 scripts/install-source-codex.py --build-only --version "$VERSION" --output dist/native.tar.gz
+          mkdir smoke
+          tar -xzf dist/native.tar.gz -C smoke
+          python3 - <<'PYTHON'
+          import hashlib, json
+          from pathlib import Path
+          for name, checksum in json.loads(Path('smoke/sha256.json').read_text()).items():
+              with (Path('smoke') / name).open('rb') as stream:
+                  assert hashlib.file_digest(stream, 'sha256').hexdigest() == checksum
+          PYTHON
+          for binary in smoke/codex smoke/codex-code-mode-host; do
+            ldd "$binary" > linkage.txt
+            cat linkage.txt
+            if grep -E 'not found|/nix/store/' linkage.txt; then exit 1; fi
+          done
+          test "$(smoke/codex --version)" = "codex-cli $VERSION"
+          smoke/codex-code-mode-host --help >/dev/null
+          key=$(python3 -c 'import json; print(json.load(open("smoke/bundle.json"))["key"])')
+          mv dist/native.tar.gz "dist/codex-native-$key-linux-x86_64.tar.gz"
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: release-native
+          path: dist/codex-native-*.tar.gz
+          retention-days: 14
 
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -- build.json
-          git diff --cached --check
-          git diff --cached --quiet && exit 1
-          git commit -m "codex: update to $VERSION"
-
-      - name: Push validated update
-        if: steps.update.outputs.changed == 'true'
-        shell: bash
+  publish:
+    name: Publish combined release
+    needs: [prepare, nix, native]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.base }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-source
+          path: ${{ runner.temp }}/release-source
+      - name: Restore exact candidate commit
         env:
-          BASE_SHA: ${{ steps.base.outputs.sha }}
+          EXPECTED_SHA: ${{ needs.prepare.outputs.sha }}
+        run: |
+          git fetch "$RUNNER_TEMP/release-source/source.bundle" HEAD
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+          git checkout --detach "$EXPECTED_SHA"
+      - name: Install Nix
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            system-features = benchmark big-parallel kvm nixos-test codex-artifact-publisher
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-nix
+          path: ${{ runner.temp }}/release-assets
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-native
+          path: ${{ runner.temp }}/release-assets
+      - name: Push candidate only after both builds pass
+        if: needs.prepare.outputs.changed == 'true'
+        env:
+          BASE_SHA: ${{ needs.prepare.outputs.base }}
+        run: |
+          git push --force-with-lease="refs/heads/main:$BASE_SHA" origin HEAD:refs/heads/main
+      - name: Publish or verify both immutable artifact sets
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          git push --force-with-lease="refs/heads/main:$BASE_SHA" \
-            origin HEAD:refs/heads/main
-
-      - name: Publish or validate immutable release
-        shell: bash
-        env:
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_TOKEN: ${{ github.token }}
-        run: bash scripts/publish-bundle.sh
+          source scripts/lib/bundle.sh
+          codex_bundle_initialize .
+          python3 scripts/publish-release.py --assets "$RUNNER_TEMP/release-assets" \
+            --tag "$CODEX_BUNDLE_TAG" --output-path "$CODEX_BUNDLE_OUTPUT_PATH" \
+            --revision "$(git rev-parse HEAD)"
 
   install-smoke:
     name: Verify fresh release import
-    needs: update
-    permissions:
-      contents: read
+    needs: [prepare, publish]
     uses: ./.github/workflows/install-smoke.yml
-
-  native:
-    name: Build regular Linux release
-    needs: update
-    permissions:
-      contents: write
-    uses: ./.github/workflows/native.yml
     with:
-      ref: main
+      ref: ${{ needs.prepare.outputs.sha }}

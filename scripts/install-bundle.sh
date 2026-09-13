@@ -157,15 +157,25 @@ main() {
   trap cleanup_installer_temporary_directory EXIT
 
   local release_path="$installer_temporary_directory/release.json"
-  local release_url="https://api.github.com/repos/$CODEX_BUNDLE_REPO/releases/tags/$CODEX_BUNDLE_TAG"
-  github_api 'application/vnd.github+json' -o "$release_path" "$release_url" ||
+  local release_tag="bundle-$CODEX_BUNDLE_TAG"
+  local release_url="https://api.github.com/repos/$CODEX_BUNDLE_REPO/releases/tags/$release_tag"
+  local http_status query_status=0
+  http_status=$(github_api 'application/vnd.github+json' -o "$release_path" \
+    -w '%{http_code}' "$release_url") || query_status=$?
+  if [[ "$http_status" == 404 && "$query_status" == 22 ]]; then
+    release_tag="$CODEX_BUNDLE_TAG"
+    release_url="https://api.github.com/repos/$CODEX_BUNDLE_REPO/releases/tags/$release_tag"
+    github_api 'application/vnd.github+json' -o "$release_path" "$release_url" ||
+      fail 'could not resolve the exact bundle release'
+  elif [[ "$http_status" != 200 || "$query_status" != 0 ]]; then
     fail 'could not resolve the exact bundle release'
+  fi
 
   local inventory
   # Shell expansion is intentionally disabled inside the jq program.
   # shellcheck disable=SC2016
   inventory=$("$jq_bin" -er \
-    --arg tag "$CODEX_BUNDLE_TAG" \
+    --arg tag "$release_tag" \
     --arg archive "$CODEX_BUNDLE_ARCHIVE" \
     --arg manifest "$CODEX_BUNDLE_MANIFEST" \
     --arg checksums "$CODEX_BUNDLE_CHECKSUMS" '
@@ -174,8 +184,10 @@ main() {
       | if (($release | type) == "object"
           and .tag_name == $tag
           and ((.assets | type) == "array")
-          and (.assets | length) == 3
-          and ([.assets[].name] | sort) == ($expected | sort)
+          and ([.assets[] | select(.name as $name | $expected | index($name)) | .name] | sort) == ($expected | sort)
+          and all(.assets[]; (.name as $name | $expected | index($name)) != null
+            or (.name | test("^codex-native-[0-9]+[.][0-9]+[.][0-9]+-[a-f0-9]{64}-linux-x86_64[.]tar[.]gz$")))
+          and ([.assets[].name] | unique | length) == (.assets | length)
           and all(.assets[];
             ((.id | type) == "number") and (.id > 0) and ((.id | floor) == .id)
             and (.state == "uploaded")
@@ -185,7 +197,7 @@ main() {
             and (.url | test("^https://api[.]github[.]com/.+/releases/assets/[1-9][0-9]*$")))
           )
         then
-          .assets[] | [.name, .url, (.digest | sub("^sha256:"; ""))] | @tsv
+          .assets[] | select(.name as $name | $expected | index($name)) | [.name, .url, (.digest | sub("^sha256:"; ""))] | @tsv
         else
           error("release assets do not match the exact bundle inventory")
         end

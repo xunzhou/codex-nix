@@ -74,8 +74,9 @@ the update for review. A failed hash update restores the original manifest.
 
 GitHub Actions builds ordinary x86_64 GNU/Linux bundles containing `codex` and
 `codex-code-mode-host`. They are built on Ubuntu 24.04, tested for missing shared
-libraries and Nix store references, and published under immutable recipe-specific
-`native-...` release tags. They require a compatible glibc Linux system and system
+libraries and Nix store references, and published beside the Nix closure in a
+combined `bundle-codex-v...` release. Native asset names include the exact recipe
+hash. They require a compatible glibc Linux system and system
 libraries; they are not static binaries. No Nix installation is needed.
 
 Install the downloader/builder and replace the old palette-only updater step:
@@ -112,26 +113,41 @@ Overrides include `CODEX_PACKAGE_ROOT`, `CODEX_MANAGED_ENTRYPOINT`,
 `CODEX_SOURCE_ARCHIVE`. `CODEX_PRIVILEGE_COMMAND` defaults to `sudo`; use an empty
 string for a user-owned npm installation.
 
-## Native build workflow
+## Combined build and release workflow
 
-`.github/workflows/native.yml` runs for relevant changes on main and can be
-started manually. It builds the current manifest version with
-no npm installation or Nix dependency:
+`.github/workflows/update.yml` handles relevant main-branch pushes, daily upstream
+checks, and manual runs. It prepares one candidate commit and saves it as a Git
+bundle, then builds Nix and native Linux in parallel from that exact commit.
+A scheduled update is pushed only after both builds and their tests succeed;
+a concurrent change to main makes the guarded push fail without overwriting it.
+Pull requests retain the separate validation workflow.
+
+One publication job collects both Actions artifacts and creates a draft release.
+It validates both inventories and checksums before publishing the draft. The
+release includes the Nix closure, its manifest and checksums, and
+`codex-native-<version>-<recipe-hash>-linux-x86_64.tar.gz`. Existing assets are
+verified and never overwritten. Interrupted drafts can be resumed with the same
+run's artifacts. A changed native recipe can add a new asset to the same Nix
+release, without replacing earlier native assets.
+
+Older `codex-v...` and `native-...` releases remain untouched. The Nix installer
+tries the combined tag before falling back to its legacy tag on HTTP 404. The
+native installer retains its exact legacy download lookup and then searches the
+paginated release list for an asset with the exact recipe hash. API errors and
+invalid bundles stop installation; only a missing recipe permits a source build.
+Refresh the installed patcher with the setup command to use combined releases.
+
+To build just the native bundle locally:
 
 ```sh
 python3 scripts/install-source-codex.py --build-only --version 0.154.0 --output dist/codex-linux-x86_64.tar.gz
 ```
-
-The workflow uploads downloadable Actions artifacts and publishes GitHub release
-assets only from main. Scheduled manifest updates also call the native workflow,
-since pushes made with the Actions token do not trigger ordinary push workflows.
-Existing recipe-specific release assets are never overwritten. Publication must
-run successfully before a matching prebuilt download is available.
 
 Run the local installer and manifest tests with:
 
 ```sh
 python3 tests/source-patcher.py
 python3 tests/manifest.py
+python3 tests/release.py
 bash tests/update.sh
 ```

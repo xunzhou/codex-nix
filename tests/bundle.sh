@@ -367,6 +367,15 @@ write_body() {
 case "$url" in
   */releases/tags/*)
     if [[ -n "${INSTALLER_LOG:-}" ]]; then
+      if [[ "$url" == */bundle-codex-* ]]; then
+        if [[ "${FAKE_UNIFIED_STATUS:-404}" == 200 ]]; then
+          write_body "$FAKE_INSTALLER_RELEASE_METADATA"
+          printf '200'
+          exit 0
+        fi
+        printf '%s' "${FAKE_UNIFIED_STATUS:-404}"
+        exit 22
+      fi
       write_body "${FAKE_INSTALLER_RELEASE_METADATA:?}"
       exit 0
     fi
@@ -513,6 +522,12 @@ dry_run_log="$scratch/dry-run.log"
 dry_run_output=$(run_publisher "$dry_run_log" -- --dry-run)
 assert_contains 'dry run' "$dry_run_output" 'dry-run reports its mode'
 [[ ! -s "$dry_run_log" ]] || fail 'dry-run invoked a network or build operation'
+
+prepare_log="$scratch/prepare.log"
+prepare_output=$(run_publisher "$prepare_log" -- --prepare-dir "$scratch/prepared")
+assert_contains 'prepared' "$prepare_output" 'prepare mode reports exported artifacts'
+[[ "$(find "$scratch/prepared" -type f | wc -l)" == 3 ]] || fail 'prepare mode omitted Nix assets'
+if grep -q '^curl ' "$prepare_log"; then fail 'prepare mode contacted GitHub'; fi
 
 flake_dry_run_log="$scratch/flake-dry-run.log"
 flake_dry_run_output=$(FAKE_EXPECT_FLAKE_REF=path:fixture \
@@ -857,14 +872,14 @@ if [[ "$requested_suite" != publisher ]]; then
   anonymous_log="$scratch/installer-anonymous.log"
   assert_fails 'Codex executable is missing' run_installer "$anonymous_log" \
     "$valid_installer_manifest" "$valid_installer_checksums" FAKE_EXPECT_AUTH=absent
-  [[ "$(grep -c '^curl-auth absent$' "$anonymous_log")" == 4 ]] ||
+  [[ "$(grep -c '^curl-auth absent$' "$anonymous_log")" == 5 ]] ||
     fail 'anonymous installer did not omit authorization from all REST requests'
 
   authenticated_log="$scratch/installer-authenticated.log"
   assert_fails 'Codex executable is missing' run_installer "$authenticated_log" \
     "$valid_installer_manifest" "$valid_installer_checksums" \
     FAKE_EXPECT_AUTH=present CODEX_GITHUB_TOKEN=installer-secret
-  [[ "$(grep -c '^curl-auth present$' "$authenticated_log")" == 4 ]] ||
+  [[ "$(grep -c '^curl-auth present$' "$authenticated_log")" == 5 ]] ||
     fail 'authenticated installer did not authorize all REST requests'
   if grep -Fq 'installer-secret' "$authenticated_log"; then
     fail 'installer printed CODEX_GITHUB_TOKEN'
@@ -952,6 +967,22 @@ EOF
   printf '%s\n' '# terminal palette refresh did not return default colors' >>"$smoke_root/bin/codex"
   chmod -x "$smoke_root/bin/codex-code-mode-host"
   assert_fails 'codex-code-mode-host executable is missing' verify_installed_output
+
+  unified_metadata=$(installer_release_metadata "$cache_manifest" "$cache_checksums" | "$real_jq" \
+    '.tag_name = ("bundle-" + .tag_name) | .assets += [{id: 99,
+      name: "codex-native-0.150.1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-linux-x86_64.tar.gz",
+      state: "uploaded", digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      url: "https://api.github.com/repos/example/codex-nix/releases/assets/99"}]')
+  # Reach the import stage using a combined inventory, but download only Nix assets.
+  unified_log="$scratch/unified-install.log"
+  assert_fails 'Codex executable is missing' run_installer "$unified_log" "$cache_manifest" "$cache_checksums" \
+    FAKE_UNIFIED_STATUS=200 FAKE_INSTALLER_RELEASE_METADATA="$unified_metadata"
+  [[ "$(grep -c '/releases/tags/' "$unified_log")" == 1 ]] || fail 'unified installer used legacy lookup'
+  if grep -q '/releases/assets/99' "$unified_log"; then fail 'Nix installer downloaded native archive'; fi
+  unavailable_log="$scratch/unified-unavailable.log"
+  assert_installer_rejected 'could not resolve the exact bundle release' "$unavailable_log" \
+    "$cache_manifest" "$cache_checksums" FAKE_UNIFIED_STATUS=503
+  [[ "$(grep -c '/releases/tags/' "$unavailable_log")" == 1 ]] || fail 'HTTP failure triggered legacy fallback'
 
   install_program=$("$real_nix" --extra-experimental-features 'nix-command flakes' \
     eval --raw "$repo_root#apps.x86_64-linux.install.program") ||

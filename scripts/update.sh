@@ -123,6 +123,11 @@ python3 scripts/update-manifest.py "$version" ||
 
 git diff --check || fail 'updated files contain whitespace errors'
 nix flake check --no-build || fail 'flake evaluation failed'
+# CI builds both backends from this candidate before pushing or publishing it.
+if [[ "${CODEX_UPDATE_PREPARE_ONLY:-0}" == 1 ]]; then
+  printf 'codex updater: prepared %s\n' "$release_tag"
+  exit 0
+fi
 nix --extra-system-features codex-artifact-publisher build -L .#codex ||
   fail 'Codex build failed'
 test "$(./result/bin/codex --version)" = "codex-cli $version" ||

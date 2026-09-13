@@ -12,14 +12,20 @@ fail() {
 }
 
 usage() {
-  printf 'usage: %s [--dry-run] [--flake-ref REF]\n' "${0##*/}" >&2
+  printf 'usage: %s [--dry-run] [--flake-ref REF] [--prepare-dir DIR]\n' "${0##*/}" >&2
   exit 2
 }
 
 dry_run=0
+prepare_dir=''
 flake_ref=.
 while (($#)); do
   case "$1" in
+    --prepare-dir)
+      (($# >= 2)) || usage
+      prepare_dir="$2"
+      shift 2
+      ;;
     --dry-run)
       dry_run=1
       shift
@@ -41,7 +47,9 @@ if ((dry_run)); then
 fi
 
 : "${GITHUB_REPOSITORY:=xunzhou/codex-nix}"
-: "${GITHUB_TOKEN:?GITHUB_TOKEN is required for publication}"
+if [[ -z "$prepare_dir" ]]; then
+  : "${GITHUB_TOKEN:?GITHUB_TOKEN is required for publication}"
+fi
 if [[ "$GITHUB_REPOSITORY" != "$CODEX_BUNDLE_REPO" ]]; then
   fail "GITHUB_REPOSITORY must be $CODEX_BUNDLE_REPO"
 fi
@@ -135,7 +143,10 @@ trap cleanup EXIT
 
 release_metadata_path="$temporary_directory/release.json"
 release_endpoint="$api_root/repos/$GITHUB_REPOSITORY/releases/tags/$CODEX_BUNDLE_TAG"
-if release_http_status=$(github_api -o "$release_metadata_path" -w '%{http_code}' \
+if [[ -n "$prepare_dir" ]]; then
+  release_http_status=404
+  release_query_status=22
+elif release_http_status=$(github_api -o "$release_metadata_path" -w '%{http_code}' \
   "$release_endpoint"); then
   release_query_status=0
 else
@@ -328,6 +339,13 @@ archive_sha256=$(file_sha256 "$archive_path")
 
 [[ -s "$archive_path" && -s "$manifest_path" && -s "$checksums_path" ]] ||
   fail 'generated bundle assets are incomplete'
+
+if [[ -n "$prepare_dir" ]]; then
+  mkdir -p "$prepare_dir"
+  cp "$archive_path" "$manifest_path" "$checksums_path" "$prepare_dir/"
+  printf 'prepared\ntag: %s\noutput: %s\n' "$CODEX_BUNDLE_TAG" "$CODEX_BUNDLE_OUTPUT_PATH"
+  exit 0
+fi
 
 create_payload=$("$jq_bin" -n \
   --arg tag "$CODEX_BUNDLE_TAG" \

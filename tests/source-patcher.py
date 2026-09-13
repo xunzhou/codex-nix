@@ -117,6 +117,12 @@ for name in ('codex','codex-code-mode-host'):
         return result
 
     def test_ci_bundle_download_installs_without_cargo(self):
+        self.check_bundle_download(unified=False)
+
+    def test_combined_release_download_installs_without_cargo(self):
+        self.check_bundle_download(unified=True)
+
+    def check_bundle_download(self, unified):
         archive = self.root / 'published.tar.gz'
         self.invoke(args=('--build-only', '--version', '0.154.0', '--output', str(archive)))
         self.assertEqual((self.vendor / 'codex').read_text(), 'stock codex')
@@ -126,13 +132,28 @@ for name in ('codex','codex-code-mode-host'):
         commands.mkdir()
         curl = commands / 'curl'
         curl.write_text('''#!/usr/bin/env python3
-import os,shutil,sys
-assert '/releases/download/native-0.154.0-' in sys.argv[-1]
-shutil.copyfile(os.environ['PUBLISHED_BUNDLE'],sys.argv[sys.argv.index('--output')+1])
+import json,os,shutil,sys,tarfile
+url=sys.argv[-1]
+output=sys.argv[sys.argv.index('--output')+1]
+if os.environ['UNIFIED'] == '1':
+    if '/releases/download/native-' in url:
+        print('404',end='');sys.exit(0)
+    with tarfile.open(os.environ['PUBLISHED_BUNDLE']) as bundle:
+        key=json.load(bundle.extractfile('bundle.json'))['key']
+    name='codex-native-'+key+'-linux-x86_64.tar.gz'
+    tag='bundle-codex-v0.154.0-'+('a'*16)+'-'+('b'*16)
+    if '/releases?per_page=100&page=1' in url:
+        with open(output,'w') as stream:
+            json.dump([{'tag_name':tag,'assets':[{'name':name}]}],stream)
+        print('200',end='');sys.exit(0)
+    assert url.endswith('/releases/download/'+tag+'/'+name)
+else:
+    assert '/releases/download/native-0.154.0-' in url
+shutil.copyfile(os.environ['PUBLISHED_BUNDLE'],output)
 print('200',end='')
 ''')
         curl.chmod(0o755)
-        self.invoke(CODEX_INSTALL_MODE='download', PUBLISHED_BUNDLE=str(archive),
+        self.invoke(CODEX_INSTALL_MODE='download', PUBLISHED_BUNDLE=str(archive), UNIFIED='1' if unified else '0',
                     PATH=str(commands)+os.pathsep+os.environ['PATH'], FAIL_BUILD='1')
         self.assertEqual((self.root / 'count').read_text(), '1')
         self.assertIn('palette-marker', (self.vendor / 'codex').read_text())

@@ -30,6 +30,15 @@ def load_recipe(manifest, version):
             "release_repository": data["release_repository"]}
 
 
+def recipe_key(spec, patches, version):
+    identity = hashlib.sha256()
+    for item in (Path(__file__).resolve(), *patches):
+        identity.update(item.name.encode() + b"\0" + item.read_bytes() + b"\0")
+    identity.update(json.dumps(spec, sort_keys=True).encode())
+    identity.update(f"{version}:{platform.system()}:{platform.machine()}".encode())
+    return f"{version}-{identity.hexdigest()}"
+
+
 def run(*args, **kwargs):
     return subprocess.run(args, check=True, **kwargs)
 
@@ -105,6 +114,36 @@ def http_download(url, destination):
     return True
 
 
+def unified_bundle_url(spec, key, scratch):
+    """Find an exact recipe asset, including older releases beyond the first page."""
+    repository = spec["release_repository"]
+    name = f"codex-native-{key}-linux-x86_64.tar.gz"
+    page = 1
+    while True:
+        metadata = scratch / "releases.json"
+        url = f"https://api.github.com/repos/{repository}/releases?per_page=100&page={page}"
+        if not http_download(url, metadata):
+            raise ValueError("could not list unified releases")
+        releases = json.loads(metadata.read_text())
+        if not isinstance(releases, list):
+            raise ValueError("invalid release list")
+        for release in releases:
+            if release.get("draft") or not release.get("tag_name", "").startswith("bundle-codex-v"):
+                continue
+            matches = [asset for asset in release["assets"] if asset["name"] == name]
+            if len(matches) > 1:
+                raise ValueError("duplicate native release asset")
+            if matches:
+                # Construct the URL ourselves; never follow arbitrary metadata URLs.
+                tag = release["tag_name"]
+                if not re.fullmatch(r"bundle-codex-v[0-9]+\.[0-9]+\.[0-9]+-[a-f0-9]{16}-[0-9a-z]{16}", tag):
+                    raise ValueError("invalid unified release tag")
+                return f"https://github.com/{repository}/releases/download/{tag}/{name}"
+        if len(releases) < 100:
+            return None
+        page += 1
+
+
 def download_bundle(spec, key, cache, bundle, version, binaries):
     url = f'https://github.com/{spec["release_repository"]}/releases/download/native-{key}/codex-linux-x86_64.tar.gz'
     if platform.machine() != "x86_64":
@@ -112,7 +151,14 @@ def download_bundle(spec, key, cache, bundle, version, binaries):
     with tempfile.TemporaryDirectory(prefix="release-", dir=cache) as temporary:
         scratch = Path(temporary)
         archive = scratch / "bundle.tar.gz"
-        if not http_download(url, archive):
+        downloaded = http_download(url, archive)
+        if not downloaded:
+            unified_url = unified_bundle_url(spec, key, scratch)
+            if unified_url:
+                downloaded = http_download(unified_url, archive)
+                if not downloaded:
+                    raise ValueError("listed native release asset is missing")
+        if not downloaded:
             if os.environ.get("CODEX_INSTALL_MODE") == "download":
                 raise ValueError("no matching native release; rerun with --source to build locally")
             print("No matching GitHub bundle yet; falling back to the shared source recipe", flush=True)
@@ -228,12 +274,7 @@ def main():
         raise ValueError("patch manifest contains missing or out-of-tree patches")
     if vendor and any(not (vendor / name).is_file() for name in binaries):
         raise ValueError("npm package is missing the Codex native binary pair")
-    identity = hashlib.sha256()
-    for item in (Path(__file__).resolve(), *patches):
-        identity.update(item.name.encode() + b"\0" + item.read_bytes() + b"\0")
-    identity.update(json.dumps(spec, sort_keys=True).encode())
-    identity.update(f"{version}:{platform.system()}:{platform.machine()}".encode())
-    key = f"{version}-{identity.hexdigest()}"
+    key = recipe_key(spec, patches, version)
     cache = Path(os.environ.get("CODEX_PATCH_CACHE", Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "codex-patched"))
     cache.mkdir(parents=True, exist_ok=True)
     privilege = shlex.split(os.environ.get("CODEX_PRIVILEGE_COMMAND", "sudo"))
@@ -299,7 +340,7 @@ def main():
                 with tarfile.open(args.output, "w:gz") as archive:
                     for name in [*binaries, "sha256.json", "bundle.json"]:
                         archive.add(bundle / name, arcname=name)
-                print(f"Native release tag: native-{key}")
+                print(f"Native release asset: codex-native-{key}-linux-x86_64.tar.gz")
             print(f"Verified native bundle: {bundle}")
         else:
             install_bundle(bundle, vendor, privilege, binaries)
