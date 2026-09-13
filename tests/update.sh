@@ -25,16 +25,33 @@ set -euo pipefail
 printf 'curl' >>"$TEST_COMMAND_LOG"
 printf ' <%s>' "$@" >>"$TEST_COMMAND_LOG"
 printf '\n' >>"$TEST_COMMAND_LOG"
+if [[ -n ${TEST_CURL_FAILURES_BEFORE_SUCCESS:-} ]]; then
+  curl_attempt=0
+  if [[ -s $TEST_CURL_ATTEMPT_FILE ]]; then
+    read -r curl_attempt <"$TEST_CURL_ATTEMPT_FILE"
+  fi
+  curl_attempt=$((curl_attempt + 1))
+  printf '%s\n' "$curl_attempt" >"$TEST_CURL_ATTEMPT_FILE"
+  if ((curl_attempt <= TEST_CURL_FAILURES_BEFORE_SUCCESS)); then
+    printf '{"partial":'
+    exit 92
+  fi
+fi
 if [[ ${TEST_CURL_FAIL:-0} == 1 ]]; then
   exit 22
 fi
 printf '%s\n' "$TEST_RELEASE_JSON"
 FAKE
 
-cat >"$fake_bin/nix-update" <<'FAKE'
+cat >"$fake_bin/sleep" <<'FAKE'
 #!/usr/bin/env bash
 set -euo pipefail
-printf 'nix-update' >>"$TEST_COMMAND_LOG"
+FAKE
+
+cat >"$fake_bin/python3" <<'FAKE'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'manifest-update' >>"$TEST_COMMAND_LOG"
 printf ' <%s>' "$@" >>"$TEST_COMMAND_LOG"
 printf '\n' >>"$TEST_COMMAND_LOG"
 if [[ ${TEST_NIX_UPDATE_FAIL:-0} == 1 ]]; then
@@ -95,7 +112,12 @@ if [[ $1 == diff && ${2:-} == --check && ${TEST_DIFF_CHECK_FAIL:-0} == 1 ]]; the
 fi
 FAKE
 
-chmod +x "$fake_bin/curl" "$fake_bin/nix-update" "$fake_bin/nix" "$fake_bin/git"
+chmod +x \
+  "$fake_bin/curl" \
+  "$fake_bin/sleep" \
+  "$fake_bin/python3" \
+  "$fake_bin/nix" \
+  "$fake_bin/git"
 
 stable_release() {
   local version="$1"
@@ -137,6 +159,7 @@ assert_log_excludes() {
 }
 
 TEST_COMMAND_LOG="$test_root/commands.log"
+TEST_CURL_ATTEMPT_FILE="$test_root/curl-attempt"
 
 # Removing the stable-tag filter would select the alpha/RC entries instead.
 latest_releases='[
@@ -149,13 +172,39 @@ TEST_VERSION_ARGUMENTS=()
 run_update 0.150.1 0.151.0 "$latest_releases" env
 assert_log_contains 'curl <-'
 assert_log_contains '/repos/openai/codex/releases?per_page=100'
-assert_log_contains 'nix-update <codex> <--flake> <--version=0.151.0> <--override-filename=package.nix>'
+assert_log_contains 'manifest-update <scripts/update-manifest.py> <0.151.0>'
+
+# A transient GitHub API transport failure must not abort the scheduled update.
+TEST_VERSION_ARGUMENTS=()
+: >"$TEST_CURL_ATTEMPT_FILE"
+run_update 0.150.1 0.151.0 "$latest_releases" \
+  env \
+    TEST_CURL_ATTEMPT_FILE="$TEST_CURL_ATTEMPT_FILE" \
+    TEST_CURL_FAILURES_BEFORE_SUCCESS=2
+assert_log_contains 'manifest-update <scripts/update-manifest.py> <0.151.0>'
+
+# A persistent GitHub API failure must stop after the bounded retry budget.
+TEST_VERSION_ARGUMENTS=()
+: >"$TEST_CURL_ATTEMPT_FILE"
+set +e
+run_update 0.150.1 0.151.0 "$latest_releases" \
+  env \
+    TEST_CURL_ATTEMPT_FILE="$TEST_CURL_ATTEMPT_FILE" \
+    TEST_CURL_FAILURES_BEFORE_SUCCESS=4
+persistent_curl_status=$?
+set -e
+[[ $persistent_curl_status -eq 1 ]] ||
+  fail "persistent curl failure status was $persistent_curl_status, expected 1"
+read -r persistent_curl_attempts <"$TEST_CURL_ATTEMPT_FILE"
+[[ $persistent_curl_attempts -eq 4 ]] ||
+  fail "persistent curl failure made $persistent_curl_attempts attempts, expected 4"
+assert_log_excludes 'manifest-update'
 
 # Skipping exact release validation would allow a different or prerelease tag.
 TEST_VERSION_ARGUMENTS=(0.151.0)
 run_update 0.150.1 0.151.0 "$(stable_release 0.151.0)" env
 assert_log_contains '/repos/openai/codex/releases/tags/rust-v0.151.0'
-assert_log_contains 'nix-update <codex> <--flake> <--version=0.151.0> <--override-filename=package.nix>'
+assert_log_contains 'manifest-update <scripts/update-manifest.py> <0.151.0>'
 
 for invalid_version in 0.151.0-alpha.1 0.151.0-rc.1 rust-v0.151.0 01.151.0; do
   TEST_VERSION_ARGUMENTS=("$invalid_version")
@@ -163,7 +212,7 @@ for invalid_version in 0.151.0-alpha.1 0.151.0-rc.1 rust-v0.151.0 01.151.0; do
     fail "unstable or malformed version was accepted: $invalid_version"
   fi
   assert_log_excludes 'curl'
-  assert_log_excludes 'nix-update'
+  assert_log_excludes 'manifest-update'
 done
 
 TEST_VERSION_ARGUMENTS=(0.151.0)
@@ -171,7 +220,7 @@ if run_update 0.150.1 0.151.0 \
   '{"tag_name":"rust-v0.151.0","draft":false,"prerelease":true}' env; then
   fail 'prerelease metadata was accepted for an explicit version'
 fi
-assert_log_excludes 'nix-update'
+assert_log_excludes 'manifest-update'
 
 # An already-current explicit release must stop after upstream and local version
 # validation so it cannot spend hours rebuilding an unchanged Codex closure.
@@ -182,7 +231,7 @@ already_current_status=$?
 set -e
 [[ $already_current_status -eq 10 ]] ||
   fail "already-current exit status was $already_current_status, expected 10"
-assert_log_excludes 'nix-update'
+assert_log_excludes 'manifest-update'
 assert_log_contains 'nix <eval> <--raw> <.#codex.version>'
 assert_log_excludes 'git <diff> <--check>'
 assert_log_excludes 'nix <flake> <check> <--no-build>'
@@ -200,7 +249,7 @@ set -e
   fail "latest already-current exit status was $latest_already_current_status, expected 10"
 assert_log_contains '/repos/openai/codex/releases?per_page=100'
 assert_log_contains 'nix <eval> <--raw> <.#codex.version>'
-assert_log_excludes 'nix-update'
+assert_log_excludes 'manifest-update'
 assert_log_excludes 'git <diff> <--check>'
 assert_log_excludes 'nix <flake> <check> <--no-build>'
 assert_log_excludes 'nix <--extra-system-features> <codex-artifact-publisher> <build> <-L> <.#codex>'
@@ -209,7 +258,7 @@ assert_log_excludes 'nix <--extra-system-features> <codex-artifact-publisher> <b
 TEST_VERSION_ARGUMENTS=(0.151.0)
 if run_update 0.150.1 0.151.0 "$(stable_release 0.151.0)" \
   env TEST_NIX_UPDATE_FAIL=1; then
-  fail 'nix-update failure was ignored'
+  fail 'manifest-update failure was ignored'
 fi
 assert_log_excludes 'git <diff> <--check>'
 assert_log_excludes 'git <commit>'
