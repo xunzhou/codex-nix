@@ -1,0 +1,363 @@
+diff --git a/codex-rs/tui/src/bottom_pane/mod.rs b/codex-rs/tui/src/bottom_pane/mod.rs
+index 8e9680a..e0ceecb 100644
+--- a/codex-rs/tui/src/bottom_pane/mod.rs
++++ b/codex-rs/tui/src/bottom_pane/mod.rs
+@@ -290,6 +290,8 @@ pub(crate) struct BottomPane {
+     enhanced_keys_supported: bool,
+     disable_paste_burst: bool,
+     is_task_running: bool,
++    interrupt_esc_at: Option<Instant>,
++    pub(crate) last_key_interrupted: bool,
+     esc_backtrack_hint: bool,
+     animations_enabled: bool,
+     effects: codex_config::types::TuiEffects,
+@@ -374,6 +376,8 @@ impl BottomPane {
+             enhanced_keys_supported,
+             disable_paste_burst,
+             is_task_running: false,
++            interrupt_esc_at: None,
++            last_key_interrupted: false,
+             status: None,
+             hook_status_message: None,
+             inline_banner: None,
+@@ -498,6 +502,7 @@ impl BottomPane {
+     /// should not update the composer directly unless they deliberately want
+     /// overlays and selection views to continue using the previous bindings.
+     pub fn set_keymap_bindings(&mut self, keymap: &RuntimeKeymap) {
++        self.interrupt_esc_at = None;
+         self.keymap = keymap.clone();
+         if let Some(view) = &mut self.warnings_view {
+             view.set_keymap(keymap);
+@@ -680,6 +685,7 @@ impl BottomPane {
+     }
+ 
+     fn push_view(&mut self, view: Box<dyn BottomPaneView>) {
++        self.interrupt_esc_at = None;
+         self.view_stack.push(view);
+         self.schedule_active_view_frame();
+         self.request_redraw();
+@@ -779,6 +785,12 @@ impl BottomPane {
+ 
+     /// Forward a key event to the active view or the composer.
+     pub fn handle_key_event(&mut self, key_event: KeyEvent) -> InputResult {
++        self.last_key_interrupted = false;
++        if key_event.kind != KeyEventKind::Release
++            && (key_event.code != KeyCode::Esc || !self.should_interrupt_running_task(key_event))
++        {
++            self.interrupt_esc_at = None;
++        }
+         let records_composer_activity =
+             matches!(key_event.kind, KeyEventKind::Press | KeyEventKind::Repeat)
+                 && !key_hint::has_ctrl_or_alt(key_event.modifiers)
+@@ -872,6 +884,10 @@ impl BottomPane {
+             // status row is hidden or the composer has focus.
+             // When a popup is active, prefer dismissing it over interrupting the task.
+             if self.should_interrupt_running_task(key_event) {
++                if !self.confirm_interrupt_key(key_event) {
++                    return InputResult::None;
++                }
++                self.last_key_interrupted = true;
+                 if let Some(status) = &self.status {
+                     status.interrupt();
+                 } else {
+@@ -957,6 +973,7 @@ impl BottomPane {
+     }
+ 
+     pub fn handle_paste(&mut self, pasted: String) {
++        self.interrupt_esc_at = None;
+         if self.warnings_active() {
+             if !pasted.is_empty() {
+                 self.record_composer_activity_at(Instant::now());
+@@ -1276,6 +1293,9 @@ impl BottomPane {
+     // esc_backtrack_hint_visible removed; hints are controlled internally.
+ 
+     pub fn set_task_running(&mut self, running: bool) {
++        if running != self.is_task_running {
++            self.interrupt_esc_at = None;
++        }
+         let was_running = self.is_task_running;
+         self.is_task_running = running;
+         self.composer.set_task_running(running);
+@@ -1666,6 +1686,34 @@ impl BottomPane {
+         self.is_task_running
+     }
+ 
++    pub(crate) fn reset_interrupt_tap_on_other_key(&mut self, key_event: KeyEvent) {
++        if key_event.kind != KeyEventKind::Release && key_event.code != KeyCode::Esc {
++            self.interrupt_esc_at = None;
++        }
++    }
++
++    /// Confirm Escape for either ordinary interruption or sending pending steers.
++    pub(crate) fn confirm_interrupt_key(&mut self, key_event: KeyEvent) -> bool {
++        if key_event.code != KeyCode::Esc {
++            self.interrupt_esc_at = None;
++            return true;
++        }
++        // Ignore autorepeat: interruption requires two distinct presses.
++        if key_event.kind != KeyEventKind::Press {
++            return false;
++        }
++        let now = Instant::now();
++        if self
++            .interrupt_esc_at
++            .take()
++            .is_some_and(|first| now.duration_since(first) <= Duration::from_millis(400))
++        {
++            return true;
++        }
++        self.interrupt_esc_at = Some(now);
++        false
++    }
++
+     pub(crate) fn should_interrupt_running_task(&self, key_event: KeyEvent) -> bool {
+         let is_agent_command = self
+             .composer_text()
+@@ -3635,6 +3683,8 @@ mod tests {
+ 
+         pane.set_task_running(/*running*/ true);
+ 
++        pane.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
++        assert!(rx.try_recv().is_err());
+         pane.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+ 
+         assert!(
+@@ -3644,6 +3694,64 @@ mod tests {
+ 
+         pane.hide_status_indicator();
+         pane.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
++        assert!(rx.try_recv().is_err());
++        pane.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
++        assert!(matches!(
++            rx.try_recv(),
++            Ok(AppEvent::CodexOp(Op::Interrupt))
++        ));
++    }
++
++    #[test]
++    fn double_esc_resets_on_timeout_other_input_and_turn_boundary() {
++        let (tx_raw, mut rx) = unbounded_channel::<AppEvent>();
++        let mut pane = test_pane(AppEventSender::new(tx_raw));
++        pane.set_task_running(/*running*/ true);
++        let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
++        for reset in 0..3 {
++            pane.handle_key_event(esc);
++            assert!(!pane.last_key_interrupted);
++            match reset {
++                0 => pane.interrupt_esc_at = Some(Instant::now() - Duration::from_secs(1)),
++                1 => {
++                    pane.handle_key_event(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
++                }
++                _ => {
++                    pane.set_task_running(/*running*/ false);
++                    pane.set_task_running(/*running*/ true);
++                }
++            }
++            pane.handle_key_event(esc);
++            assert!(!pane.last_key_interrupted);
++            pane.handle_key_event(esc);
++            assert!(pane.last_key_interrupted);
++            assert!(matches!(
++                rx.try_recv(),
++                Ok(AppEvent::CodexOp(Op::Interrupt))
++            ));
++            assert!(rx.try_recv().is_err());
++        }
++    }
++
++    #[test]
++    fn double_esc_ignores_release_and_autorepeat() {
++        let (tx_raw, mut rx) = unbounded_channel::<AppEvent>();
++        let mut pane = test_pane(AppEventSender::new(tx_raw));
++        pane.set_task_running(/*running*/ true);
++        let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
++        pane.handle_key_event(esc);
++        pane.handle_key_event(KeyEvent::new_with_kind(
++            KeyCode::Esc,
++            KeyModifiers::NONE,
++            KeyEventKind::Repeat,
++        ));
++        pane.handle_key_event(KeyEvent::new_with_kind(
++            KeyCode::Esc,
++            KeyModifiers::NONE,
++            KeyEventKind::Release,
++        ));
++        assert!(rx.try_recv().is_err());
++        pane.handle_key_event(esc);
+         assert!(matches!(
+             rx.try_recv(),
+             Ok(AppEvent::CodexOp(Op::Interrupt))
+diff --git a/codex-rs/tui/src/bottom_pane/pending_input_preview.rs b/codex-rs/tui/src/bottom_pane/pending_input_preview.rs
+index 93328d5..63a27c4 100644
+--- a/codex-rs/tui/src/bottom_pane/pending_input_preview.rs
++++ b/codex-rs/tui/src/bottom_pane/pending_input_preview.rs
+@@ -98,7 +98,15 @@ impl PendingInputPreview {
+             let mut header = vec!["Messages to be submitted after next tool call".into()];
+             if let Some(interrupt_binding) = self.interrupt_binding {
+                 header.push(" (press ".dim());
+-                header.extend(interrupt_binding.spans());
++                let interrupt_hint = if interrupt_binding == key_hint::plain(KeyCode::Esc).into() {
++                    key_hint::ShortcutHint::Chord {
++                        prefix: key_hint::plain(KeyCode::Esc),
++                        completion: key_hint::plain(KeyCode::Esc),
++                    }
++                } else {
++                    interrupt_binding
++                };
++                header.extend(interrupt_hint.spans());
+                 header.push(" to interrupt and send immediately)".dim());
+             }
+             Self::push_section_header(&mut lines, width, Line::from(header));
+diff --git a/codex-rs/tui/src/chatwidget/interaction.rs b/codex-rs/tui/src/chatwidget/interaction.rs
+index 1de1382..f384c47 100644
+--- a/codex-rs/tui/src/chatwidget/interaction.rs
++++ b/codex-rs/tui/src/chatwidget/interaction.rs
+@@ -34,6 +34,7 @@ impl ChatWidget {
+     }
+ 
+     pub(crate) fn handle_key_event(&mut self, key_event: KeyEvent) {
++        self.bottom_pane.reset_interrupt_tap_on_other_key(key_event);
+         if self.handle_startup_submission_key(key_event) {
+             return;
+         }
+@@ -213,6 +214,9 @@ impl ChatWidget {
+             && self.bottom_pane.no_modal_or_popup_active()
+             && !self.should_handle_vim_insert_escape(key_event)
+         {
++            if !self.bottom_pane.confirm_interrupt_key(key_event) {
++                return;
++            }
+             self.input_queue.submit_pending_steers_after_interrupt = true;
+             if self.submit_op(AppCommand::interrupt()) {
+                 self.pause_active_goal_for_interrupt();
+@@ -243,8 +247,6 @@ impl ChatWidget {
+             }
+             _ => {
+                 let had_modal_or_popup = !self.bottom_pane.no_modal_or_popup_active();
+-                let should_pause_active_goal =
+-                    self.bottom_pane.should_interrupt_running_task(key_event);
+                 let input_result = self.bottom_pane.handle_key_event(key_event);
+                 if matches!(
+                     input_result,
+@@ -254,7 +256,7 @@ impl ChatWidget {
+                 }
+                 crate::startup_recovery::submitted(&input_result);
+                 self.sync_backend_banner_view();
+-                if should_pause_active_goal {
++                if self.bottom_pane.last_key_interrupted {
+                     self.pause_active_goal_for_interrupt();
+                 }
+                 self.handle_composer_input_result(input_result, had_modal_or_popup);
+diff --git a/codex-rs/tui/src/chatwidget/tests/composer_submission.rs b/codex-rs/tui/src/chatwidget/tests/composer_submission.rs
+index 95b6ea1..d54a985 100644
+--- a/codex-rs/tui/src/chatwidget/tests/composer_submission.rs
++++ b/codex-rs/tui/src/chatwidget/tests/composer_submission.rs
+@@ -1682,6 +1682,8 @@ async fn output_free_esc_interrupt_keeps_prompt_and_opens_blank_composer() {
+     let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+     assert!(chat.bottom_pane.should_interrupt_running_task(esc));
+     chat.handle_key_event(esc);
++    assert!(!chat.bottom_pane.last_key_interrupted);
++    chat.handle_key_event(esc);
+ 
+     let mut saw_prompt = false;
+     loop {
+@@ -1751,6 +1753,9 @@ async fn pending_steer_esc_does_not_steal_vim_insert_escape() {
+     assert!(!chat.input_queue.submit_pending_steers_after_interrupt);
+     assert!(op_rx.try_recv().is_err());
+ 
++    chat.handle_key_event(esc);
++    assert!(op_rx.try_recv().is_err());
++    assert!(!chat.input_queue.submit_pending_steers_after_interrupt);
+     chat.handle_key_event(esc);
+ 
+     match op_rx.try_recv() {
+diff --git a/codex-rs/tui/src/chatwidget/tests/review_mode.rs b/codex-rs/tui/src/chatwidget/tests/review_mode.rs
+index 2806de7..a1244c9 100644
+--- a/codex-rs/tui/src/chatwidget/tests/review_mode.rs
++++ b/codex-rs/tui/src/chatwidget/tests/review_mode.rs
+@@ -863,6 +863,8 @@ async fn esc_interrupt_sends_all_pending_steers_immediately_and_keeps_existing_d
+     chat.bottom_pane
+         .set_composer_text("still editing".to_string(), Vec::new(), Vec::new());
+ 
++    chat.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
++    assert!(op_rx.try_recv().is_err());
+     chat.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+     next_interrupt_op(&mut op_rx);
+ 
+@@ -917,6 +919,8 @@ async fn esc_with_pending_steers_overrides_agent_command_interrupt_behavior() {
+     chat.bottom_pane
+         .set_composer_text("/subagents ".to_string(), Vec::new(), Vec::new());
+     chat.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
++    assert!(op_rx.try_recv().is_err());
++    chat.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+ 
+     next_interrupt_op(&mut op_rx);
+     assert_eq!(chat.bottom_pane.composer_text(), "/subagents ");
+diff --git a/codex-rs/tui/src/chatwidget/tests/slash_commands.rs b/codex-rs/tui/src/chatwidget/tests/slash_commands.rs
+index 2662954..30ad77b 100644
+--- a/codex-rs/tui/src/chatwidget/tests/slash_commands.rs
++++ b/codex-rs/tui/src/chatwidget/tests/slash_commands.rs
+@@ -1210,6 +1210,8 @@ async fn interrupted_merged_message_history_encodes_mentions_once() {
+     let encoded = "use [$figma](app://figma) now";
+     assert_eq!(next_add_to_history_event(&mut rx), encoded);
+ 
++    chat.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
++    assert!(op_rx.try_recv().is_err());
+     chat.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+     next_interrupt_op(&mut op_rx);
+     chat.on_interrupted_turn(TurnAbortReason::Interrupted);
+diff --git a/codex-rs/tui/src/chatwidget/tests/status_and_layout.rs b/codex-rs/tui/src/chatwidget/tests/status_and_layout.rs
+index 1c2308a..ce9bbe5 100644
+--- a/codex-rs/tui/src/chatwidget/tests/status_and_layout.rs
++++ b/codex-rs/tui/src/chatwidget/tests/status_and_layout.rs
+@@ -2185,6 +2185,11 @@ async fn esc_interrupt_pauses_active_goal_turn() {
+     chat.show_welcome_banner = false;
+     let thread_id = start_active_goal_turn(&mut chat);
+ 
++    chat.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
++    assert!(
++        rx.try_recv().is_err(),
++        "first Esc must not interrupt or pause the goal"
++    );
+     chat.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+ 
+     assert_matches!(rx.try_recv(), Ok(AppEvent::CodexOp(Op::Interrupt)));
+diff --git a/codex-rs/tui/src/status_indicator_widget.rs b/codex-rs/tui/src/status_indicator_widget.rs
+index b3e5ede..aa33740 100644
+--- a/codex-rs/tui/src/status_indicator_widget.rs
++++ b/codex-rs/tui/src/status_indicator_widget.rs
+@@ -253,7 +253,15 @@ impl StatusIndicator<'_> {
+             && let Some(interrupt_binding) = row.interrupt_binding
+         {
+             spans.push(format!("({pretty_elapsed} • ").dim());
+-            spans.extend(interrupt_binding.spans());
++            let interrupt_hint = if interrupt_binding == key_hint::plain(KeyCode::Esc).into() {
++                key_hint::ShortcutHint::Chord {
++                    prefix: key_hint::plain(KeyCode::Esc),
++                    completion: key_hint::plain(KeyCode::Esc),
++                }
++            } else {
++                interrupt_binding
++            };
++            spans.extend(interrupt_hint.spans());
+             spans.push(" to interrupt)".dim());
+         } else {
+             spans.push(format!("({pretty_elapsed})").dim());
+@@ -449,7 +457,7 @@ mod tests {
+             .map(ratatui::buffer::Cell::symbol)
+             .collect::<String>();
+ 
+-        assert!(line.starts_with("Working (0s • esc to interrupt)"));
++        assert!(line.starts_with("Working (0s • esc esc to interrupt)"));
+     }
+ 
+     #[test]
+@@ -499,7 +507,7 @@ mod tests {
+             ),
+         ] {
+             w.update_inline_message(background.map(str::to_string));
+-            let mut expected = "Working (0s • esc to interrupt)".to_string();
++            let mut expected = "Working (0s • esc esc to interrupt)".to_string();
+             if let Some(background) = background {
+                 expected.push_str(&format!(" · {background}"));
+             }

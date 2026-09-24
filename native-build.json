@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "default_version": "0.156.1",
+  "release_repository": "xunzhou/codex-nix",
+  "build": {
+    "binaries": {
+      "codex-code-mode-host": {
+        "package": "codex-code-mode-host",
+        "smoke_args": [
+          "--help"
+        ]
+      },
+      "codex": {
+        "package": "codex-cli",
+        "smoke_args": [
+          "--version"
+        ]
+      }
+    },
+    "markers": [
+      "terminal palette refresh did not return default colors"
+    ]
+  },
+  "profiles": {
+    "v8-150.4.0": {
+      "crate_versions": {
+        "v8": "150.4.0"
+      },
+      "build_assets": {
+        "x86_64-unknown-linux-gnu": {
+          "RUSTY_V8_ARCHIVE": {
+            "url": "https://github.com/openai/codex/releases/download/rusty-v8-v150.4.0/librusty_v8_ptrcomp_sandbox_release_x86_64-unknown-linux-gnu.a.gz",
+            "sha256": "a35c75d1f26e6a983885a45b33490a4ebe54f05050568b32b89cfb421b30b583"
+          },
+          "RUSTY_V8_SRC_BINDING_PATH": {
+            "url": "https://github.com/openai/codex/releases/download/rusty-v8-v150.4.0/src_binding_ptrcomp_sandbox_release_x86_64-unknown-linux-gnu.rs",
+            "sha256": "7727826ae479bdb645e807239fb12d1f8e2e23de7a6cf16f5ee592690d1d8506"
+          }
+        }
+      }
+    }
+  },
+  "releases": {
+    "0.156.1": {
+      "profile": "v8-150.4.0",
+      "source": {
+        "url": "https://github.com/openai/codex/archive/refs/tags/rust-v0.156.1.tar.gz",
+        "sha256": "cd1e3d063dcf5e029815b7bb178c9017221ddd12bd49b879b14c1f4b09219a02"
+      },
+      "patches": [
+        "0.156.1/live-palette-refresh.patch",
+        "0.156.1/double-esc-interrupt.patch"
+      ]
+    }
+  }
+}

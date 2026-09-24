@@ -1,3 +1,4 @@
 /result
 /.worktrees/
 __pycache__/
+/.native-cache/
