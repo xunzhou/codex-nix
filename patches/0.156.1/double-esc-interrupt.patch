@@ -1,3 +1,16 @@
+diff --git a/codex-rs/tui/src/app/snapshots/codex_tui__app__composer_hints__tests__composer_usage_notice.snap b/codex-rs/tui/src/app/snapshots/codex_tui__app__composer_hints__tests__composer_usage_notice.snap
+index 85f93b7..06c6fcd 100644
+--- a/codex-rs/tui/src/app/snapshots/codex_tui__app__composer_hints__tests__composer_usage_notice.snap
++++ b/codex-rs/tui/src/app/snapshots/codex_tui__app__composer_hints__tests__composer_usage_notice.snap
+@@ -19,7 +19,7 @@ Conversation
+   5% of your 5h limit left.
+   Run /status for a breakdown.
+       ⚠ 5h limit: only <1% left
+-• Working (0s • esc to interrup…
++• Working (0s • esc esc to inte…
+ 
+ 
+ › draft stays
 diff --git a/codex-rs/tui/src/bottom_pane/mod.rs b/codex-rs/tui/src/bottom_pane/mod.rs
 index 8e9680a..e0ceecb 100644
 --- a/codex-rs/tui/src/bottom_pane/mod.rs
@@ -208,6 +221,184 @@ index 93328d5..63a27c4 100644
                  header.push(" to interrupt and send immediately)".dim());
              }
              Self::push_section_header(&mut lines, width, Line::from(header));
+diff --git a/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__pending_input_preview__tests__render_multiline_pending_steer_uses_single_prefix_and_truncates.snap b/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__pending_input_preview__tests__render_multiline_pending_steer_uses_single_prefix_and_truncates.snap
+index 93c9397..aea17d7 100644
+--- a/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__pending_input_preview__tests__render_multiline_pending_steer_uses_single_prefix_and_truncates.snap
++++ b/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__pending_input_preview__tests__render_multiline_pending_steer_uses_single_prefix_and_truncates.snap
+@@ -3,10 +3,11 @@ source: tui/src/bottom_pane/pending_input_preview.rs
+ expression: "format!(\"{buf:?}\")"
+ ---
+ Buffer {
+-    area: Rect { x: 0, y: 0, width: 48, height: 6 },
++    area: Rect { x: 0, y: 0, width: 48, height: 7 },
+     content: [
+         "• Messages to be submitted after next tool call ",
+-        "  (press esc to interrupt and send immediately) ",
++        "  (press esc esc to interrupt and send          ",
++        "  immediately)                                  ",
+         "  ↳ First line                                  ",
+         "    Second line                                 ",
+         "    Third line                                  ",
+@@ -17,15 +18,17 @@ Buffer {
+         x: 2, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+         x: 0, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: DIM,
+         x: 9, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: BOLD,
+-        x: 12, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: DIM,
+-        x: 47, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
++        x: 16, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: DIM,
++        x: 38, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+         x: 0, y: 2, fg: Reset, bg: Reset, underline: Reset, modifier: DIM,
+         x: 14, y: 2, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+-        x: 4, y: 3, fg: Reset, bg: Reset, underline: Reset, modifier: DIM,
+-        x: 15, y: 3, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
++        x: 0, y: 3, fg: Reset, bg: Reset, underline: Reset, modifier: DIM,
++        x: 14, y: 3, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+         x: 4, y: 4, fg: Reset, bg: Reset, underline: Reset, modifier: DIM,
+-        x: 14, y: 4, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+-        x: 0, y: 5, fg: Reset, bg: Reset, underline: Reset, modifier: DIM,
+-        x: 5, y: 5, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
++        x: 15, y: 4, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
++        x: 4, y: 5, fg: Reset, bg: Reset, underline: Reset, modifier: DIM,
++        x: 14, y: 5, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
++        x: 0, y: 6, fg: Reset, bg: Reset, underline: Reset, modifier: DIM,
++        x: 5, y: 6, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+     ]
+ }
+diff --git a/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__pending_input_preview__tests__render_one_pending_steer.snap b/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__pending_input_preview__tests__render_one_pending_steer.snap
+index 84f0495..f3756c0 100644
+--- a/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__pending_input_preview__tests__render_one_pending_steer.snap
++++ b/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__pending_input_preview__tests__render_one_pending_steer.snap
+@@ -3,10 +3,11 @@ source: tui/src/bottom_pane/pending_input_preview.rs
+ expression: "format!(\"{buf:?}\")"
+ ---
+ Buffer {
+-    area: Rect { x: 0, y: 0, width: 48, height: 3 },
++    area: Rect { x: 0, y: 0, width: 48, height: 4 },
+     content: [
+         "• Messages to be submitted after next tool call ",
+-        "  (press esc to interrupt and send immediately) ",
++        "  (press esc esc to interrupt and send          ",
++        "  immediately)                                  ",
+         "  ↳ Please continue.                            ",
+     ],
+     styles: [
+@@ -14,9 +15,11 @@ Buffer {
+         x: 2, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+         x: 0, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: DIM,
+         x: 9, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: BOLD,
+-        x: 12, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: DIM,
+-        x: 47, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
++        x: 16, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: DIM,
++        x: 38, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+         x: 0, y: 2, fg: Reset, bg: Reset, underline: Reset, modifier: DIM,
+-        x: 20, y: 2, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
++        x: 14, y: 2, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
++        x: 0, y: 3, fg: Reset, bg: Reset, underline: Reset, modifier: DIM,
++        x: 20, y: 3, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+     ]
+ }
+diff --git a/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__pending_input_preview__tests__render_pending_steers_above_queued_messages.snap b/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__pending_input_preview__tests__render_pending_steers_above_queued_messages.snap
+index b86b009..0957df4 100644
+--- a/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__pending_input_preview__tests__render_pending_steers_above_queued_messages.snap
++++ b/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__pending_input_preview__tests__render_pending_steers_above_queued_messages.snap
+@@ -6,7 +6,7 @@ Buffer {
+     area: Rect { x: 0, y: 0, width: 52, height: 11 },
+     content: [
+         "• Messages to be submitted after next tool call     ",
+-        "  (press esc to interrupt and send immediately)     ",
++        "  (press esc esc to interrupt and send immediately) ",
+         "  ↳ Please continue.                                ",
+         "  ↳ Check the last command output.                  ",
+         "                                                    ",
+@@ -22,8 +22,8 @@ Buffer {
+         x: 2, y: 0, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+         x: 0, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: DIM,
+         x: 9, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: BOLD,
+-        x: 12, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: DIM,
+-        x: 47, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
++        x: 16, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: DIM,
++        x: 51, y: 1, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+         x: 0, y: 2, fg: Reset, bg: Reset, underline: Reset, modifier: DIM,
+         x: 20, y: 2, fg: Reset, bg: Reset, underline: Reset, modifier: NONE,
+         x: 0, y: 3, fg: Reset, bg: Reset, underline: Reset, modifier: DIM,
+diff --git a/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__tests__slash_command_popup_dismissed.snap b/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__tests__slash_command_popup_dismissed.snap
+index 2eae5af..2099b6e 100644
+--- a/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__tests__slash_command_popup_dismissed.snap
++++ b/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__tests__slash_command_popup_dismissed.snap
+@@ -2,7 +2,7 @@
+ source: tui/src/bottom_pane/mod.rs
+ expression: "render_snapshot(&pane, area)"
+ ---
+-• Working (0s • esc to interrupt)                           
++• Working (0s • esc esc to interrupt)                       
+                                                             
+                                                             
+ › /rev                                                      
+diff --git a/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__tests__status_and_composer_fill_height_without_bottom_padding.snap b/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__tests__status_and_composer_fill_height_without_bottom_padding.snap
+index 5c95c9f..1f943aa 100644
+--- a/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__tests__status_and_composer_fill_height_without_bottom_padding.snap
++++ b/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__tests__status_and_composer_fill_height_without_bottom_padding.snap
+@@ -2,7 +2,7 @@
+ source: tui/src/bottom_pane/mod.rs
+ expression: "render_snapshot(&pane, area)"
+ ---
+-• Working (0s • esc to interr…
++• Working (0s • esc esc to in…
+                               
+                               
+ › Ask Codex to do anything    
+diff --git a/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__tests__status_and_queued_messages_snapshot.snap b/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__tests__status_and_queued_messages_snapshot.snap
+index cae3680..69e9c53 100644
+--- a/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__tests__status_and_queued_messages_snapshot.snap
++++ b/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__tests__status_and_queued_messages_snapshot.snap
+@@ -2,7 +2,7 @@
+ source: tui/src/bottom_pane/mod.rs
+ expression: "render_snapshot(&pane, area)"
+ ---
+-• Working (0s • esc to interrupt)               
++• Working (0s • esc esc to interrupt)           
+                                                 
+ • Queued follow-up inputs                       
+   ↳ Queued follow-up question                   
+diff --git a/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__tests__status_only_snapshot.snap b/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__tests__status_only_snapshot.snap
+index 136c358..39517f8 100644
+--- a/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__tests__status_only_snapshot.snap
++++ b/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__tests__status_only_snapshot.snap
+@@ -2,7 +2,7 @@
+ source: tui/src/bottom_pane/mod.rs
+ expression: "render_snapshot(&pane, area)"
+ ---
+-• Working (0s • esc to interrupt)               
++• Working (0s • esc esc to interrupt)           
+                                                 
+                                                 
+ › Ask Codex to do anything                      
+diff --git a/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__tests__status_timer_survives_hidden_row.snap b/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__tests__status_timer_survives_hidden_row.snap
+index 13ce938..97916bc 100644
+--- a/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__tests__status_timer_survives_hidden_row.snap
++++ b/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__tests__status_timer_survives_hidden_row.snap
+@@ -3,7 +3,7 @@ source: tui/src/bottom_pane/mod.rs
+ assertion_line: 2570
+ expression: "render_snapshot(&pane, area)"
+ ---
+-• Working (42s • esc to interrupt)      
++• Working (42s • esc esc to interrupt)  
+                                         
+                                         
+ › Ask Codex to do anything              
+diff --git a/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__tests__status_with_details_and_queued_messages_snapshot.snap b/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__tests__status_with_details_and_queued_messages_snapshot.snap
+index 114c209..663482d 100644
+--- a/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__tests__status_with_details_and_queued_messages_snapshot.snap
++++ b/codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__tests__status_with_details_and_queued_messages_snapshot.snap
+@@ -2,7 +2,7 @@
+ source: tui/src/bottom_pane/mod.rs
+ expression: "render_snapshot(&pane, area)"
+ ---
+-• Working (0s • esc to interrupt)               
++• Working (0s • esc esc to interrupt)           
+   └ First detail line                           
+     Second detail line                          
+                                                 
 diff --git a/codex-rs/tui/src/chatwidget/interaction.rs b/codex-rs/tui/src/chatwidget/interaction.rs
 index 1de1382..f384c47 100644
 --- a/codex-rs/tui/src/chatwidget/interaction.rs
@@ -248,6 +439,447 @@ index 1de1382..f384c47 100644
                      self.pause_active_goal_for_interrupt();
                  }
                  self.handle_composer_input_result(input_result, had_modal_or_popup);
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__app_server_guardian_review_denied_renders_denied_request.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__app_server_guardian_review_denied_renders_denied_request.snap
+index 832d39d..aa102ab 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__app_server_guardian_review_denied_renders_denied_request.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__app_server_guardian_review_denied_renders_denied_request.snap
+@@ -12,7 +12,7 @@ expression: normalize_snapshot_paths(term.backend().vt100().screen().contents())
+ ✗ Request denied for codex to run curl -sS -i -X POST --data-binary
+   @core/src/codex.rs https://example.com
+ 
+-• Working (0s • esc to interrupt)
++• Working (0s • esc esc to interrupt)
+ 
+ 
+ › Ask Codex to do anything
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__app_server_guardian_review_timed_out_renders_timed_out_request.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__app_server_guardian_review_timed_out_renders_timed_out_request.snap
+index 740c9a6..f4d5ccb 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__app_server_guardian_review_timed_out_renders_timed_out_request.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__app_server_guardian_review_timed_out_renders_timed_out_request.snap
+@@ -12,7 +12,7 @@ expression: normalize_snapshot_paths(term.backend().vt100().screen().contents())
+ ✗ Review timed out before codex could run curl -sS -i -X POST --data-binary
+   @core/src/codex.rs https://example.com
+ 
+-• Working (0s • esc to interrupt)
++• Working (0s • esc esc to interrupt)
+ 
+ 
+ › Ask Codex to do anything
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__chatwidget_exec_and_status_layout_vt100_snapshot.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__chatwidget_exec_and_status_layout_vt100_snapshot.snap
+index dfcfae1..859b79e 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__chatwidget_exec_and_status_layout_vt100_snapshot.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__chatwidget_exec_and_status_layout_vt100_snapshot.snap
+@@ -36,7 +36,7 @@ expression: normalize_snapshot_paths(term.backend().vt100().screen().contents())
+   └ Search Change Approved
+     Read diff_render.rs
+ 
+-• Investigating rendering code (0s • esc to interrupt)
++• Investigating rendering code (0s • esc esc to interrupt)
+ 
+ 
+ › Summarize recent commits
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__chatwidget_tall.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__chatwidget_tall.snap
+index 8d0df9a..d78f4f0 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__chatwidget_tall.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__chatwidget_tall.snap
+@@ -3,7 +3,7 @@ source: tui/src/chatwidget/tests/status_and_layout.rs
+ expression: normalize_snapshot_paths(term.backend().vt100().screen().contents())
+ ---
+ 
+-• Working (0s • esc to interrupt)
++• Working (0s • esc esc to interrupt)
+ 
+ • Queued follow-up inputs
+   ↳ Hello, world! 0
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__compact_queues_user_messages_snapshot.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__compact_queues_user_messages_snapshot.snap
+index a4362be..11db5f3 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__compact_queues_user_messages_snapshot.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__compact_queues_user_messages_snapshot.snap
+@@ -12,7 +12,7 @@ expression: normalize_snapshot_paths(term.backend().vt100().screen().contents())
+ 
+ 
+ 
+-• Working (0s • esc to interrupt)
++• Working (0s • esc esc to interrupt)
+ 
+ • Messages to be submitted at end of turn
+   ↳ Steer submitted while /compact was running.
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__compaction_running.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__compaction_running.snap
+index fff4016..f61b4e8 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__compaction_running.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__compaction_running.snap
+@@ -2,7 +2,7 @@
+ source: tui/src/chatwidget/tests/compaction_tests.rs
+ expression: "normalize_compaction_snapshot(render_bottom_popup(&chat, 80))"
+ ---
+-• Compacting context (<elapsed> • esc to interrupt)
++• Compacting context (<elapsed> • esc esc to interrupt)
+   └ Making room to continue.
+ 
+ 
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__completed_turn_clears_visible_running_hook.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__completed_turn_clears_visible_running_hook.snap
+index 749ed94..a3a5fb5 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__completed_turn_clears_visible_running_hook.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__completed_turn_clears_visible_running_hook.snap
+@@ -4,7 +4,7 @@ expression: "format!(\"before completion:\\n{before_completion}\\nafter completi
+ ---
+ before completion:
+ "                                                                                "
+-"• Working (0s • esc to interrupt) · Running hook                                "
++"• Working (0s • esc esc to interrupt) · Running hook                            "
+ "                                                                                "
+ "                                                                                "
+ "› Ask Codex to do anything                                                      "
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__esc_interrupt_goal_paused_footer.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__esc_interrupt_goal_paused_footer.snap
+index d9aaa4e..45aef41 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__esc_interrupt_goal_paused_footer.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__esc_interrupt_goal_paused_footer.snap
+@@ -3,7 +3,7 @@ source: tui/src/chatwidget/tests/status_and_layout.rs
+ expression: snapshot
+ ---
+ "                                                                                "
+-"• Working (0s • esc to interrupt)                                               "
++"• Working (0s • esc esc to interrupt)                                           "
+ "                                                                                "
+ "                                                                                "
+ "› Ask Codex to do anything                                                      "
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__guardian_approved_request_permissions_clears_status_without_history.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__guardian_approved_request_permissions_clears_status_without_history.snap
+index 9e55201..112185e 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__guardian_approved_request_permissions_clears_status_without_history.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__guardian_approved_request_permissions_clears_status_without_history.snap
+@@ -7,7 +7,7 @@ expression: normalize_snapshot_paths(term.backend().vt100().screen().contents())
+ 
+ 
+ 
+-• Working (0s • esc to interrupt)
++• Working (0s • esc esc to interrupt)
+ 
+ 
+ › Ask Codex to do anything
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__guardian_denied_exec_renders_warning_and_denied_request.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__guardian_denied_exec_renders_warning_and_denied_request.snap
+index c97ab12..b3b79d8 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__guardian_denied_exec_renders_warning_and_denied_request.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__guardian_denied_exec_renders_warning_and_denied_request.snap
+@@ -16,7 +16,7 @@ expression: normalize_snapshot_paths(term.backend().vt100().screen().contents())
+ ✗ Request denied for codex to run curl -sS -i -X POST --data-binary
+   @core/src/codex.rs https://example.com
+ 
+-• Working (0s • esc to interrupt)
++• Working (0s • esc esc to interrupt)
+ 
+ 
+ › Ask Codex to do anything
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__guardian_goal_continuation_drops_stale_reviews.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__guardian_goal_continuation_drops_stale_reviews.snap
+index f422c75..7c134b0 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__guardian_goal_continuation_drops_stale_reviews.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__guardian_goal_continuation_drops_stale_reviews.snap
+@@ -2,7 +2,7 @@
+ source: tui/src/chatwidget/tests/guardian.rs
+ expression: normalize_snapshot_paths(rendered)
+ ---
+-• Reviewing approval request (0s • esc to interrupt)
++• Reviewing approval request (0s • esc esc to interrupt)
+   └ rm -rf '/tmp/current-review'
+ 
+ 
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__guardian_parallel_reviews_render_aggregate_status.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__guardian_parallel_reviews_render_aggregate_status.snap
+index cdadc01..d38d468 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__guardian_parallel_reviews_render_aggregate_status.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__guardian_parallel_reviews_render_aggregate_status.snap
+@@ -2,7 +2,7 @@
+ source: tui/src/chatwidget/tests/guardian.rs
+ expression: normalize_snapshot_paths(rendered)
+ ---
+-• Reviewing 2 approval requests (0s • esc to interrupt)
++• Reviewing 2 approval requests (0s • esc esc to interrupt)
+   └ • rm -rf '/tmp/guardian target 1'
+     • rm -rf '/tmp/guardian target 2'
+ 
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__guardian_timed_out_exec_renders_warning_and_timed_out_request.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__guardian_timed_out_exec_renders_warning_and_timed_out_request.snap
+index 0210b58..66de5fa 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__guardian_timed_out_exec_renders_warning_and_timed_out_request.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__guardian_timed_out_exec_renders_warning_and_timed_out_request.snap
+@@ -16,7 +16,7 @@ expression: normalize_snapshot_paths(term.backend().vt100().screen().contents())
+ ✗ Review timed out before codex could run curl -sS -i -X POST --data-binary
+   @core/src/codex.rs https://example.com
+ 
+-• Working (0s • esc to interrupt)
++• Working (0s • esc esc to interrupt)
+ 
+ 
+ › Ask Codex to do anything
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__guardian_write_stdin_review_status.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__guardian_write_stdin_review_status.snap
+index 01b02b2..a6f67b9 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__guardian_write_stdin_review_status.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__guardian_write_stdin_review_status.snap
+@@ -2,7 +2,7 @@
+ source: tui/src/chatwidget/tests/guardian.rs
+ expression: "normalize_snapshot_paths(render_bottom_popup(&chat, 80))"
+ ---
+-• Reviewing approval request (0s • esc to interrupt)
++• Reviewing approval request (0s • esc esc to interrupt)
+   └ send input to terminal 42: "confirm\n"
+ 
+ 
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__hidden_shell_paste_queued_preview.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__hidden_shell_paste_queued_preview.snap
+index aa68492..1aa1364 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__hidden_shell_paste_queued_preview.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__hidden_shell_paste_queued_preview.snap
+@@ -2,7 +2,7 @@
+ source: tui/src/chatwidget/tests/composer_submission.rs
+ expression: "normalize_snapshot_paths(render_bottom_popup(&chat, 80))"
+ ---
+-• Working (0s • esc to interrupt)
++• Working (0s • esc esc to interrupt)
+ 
+ • Queued follow-up inputs
+   ↳ [Pasted Content 1006 chars]
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__hook_runs_while_exec_active_snapshot.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__hook_runs_while_exec_active_snapshot.snap
+index a543317..a632aee 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__hook_runs_while_exec_active_snapshot.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__hook_runs_while_exec_active_snapshot.snap
+@@ -9,7 +9,7 @@ exec and hook running:
+ "                                                                                "
+ "• Running echo done                                                             "
+ "                                                                                "
+-"• Working (0s • esc to interrupt) · checking output policy                      "
++"• Working (0s • esc esc to interrupt) · checking output policy                  "
+ "                                                                                "
+ "                                                                                "
+ "› Ask Codex to do anything                                                      "
+@@ -21,7 +21,7 @@ history after exec:
+ 
+ hook running after exec:
+ "                                                                                "
+-"• Working (0s • esc to interrupt) · checking output policy                      "
++"• Working (0s • esc esc to interrupt) · checking output policy                  "
+ "                                                                                "
+ "                                                                                "
+ "› Ask Codex to do anything                                                      "
+@@ -29,7 +29,7 @@ hook running after exec:
+ "  GPT-5.6-Sol default · /tmp/project                                            "
+ quiet hook completed:
+ "                                                                                "
+-"• Working (0s • esc to interrupt)                                               "
++"• Working (0s • esc esc to interrupt)                                           "
+ "                                                                                "
+ "                                                                                "
+ "› Ask Codex to do anything                                                      "
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__image_generation_begin_restores_working_status.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__image_generation_begin_restores_working_status.snap
+index 16ef232..4d96495 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__image_generation_begin_restores_working_status.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__image_generation_begin_restores_working_status.snap
+@@ -3,7 +3,7 @@ source: tui/src/chatwidget/tests/exec_flow.rs
+ expression: normalized_backend_snapshot(terminal.backend())
+ ---
+ "                                                                                "
+-"• Working (0s • esc to interrupt)                                               "
++"• Working (0s • esc esc to interrupt)                                           "
+ "                                                                                "
+ "                                                                                "
+ "› Ask Codex to do anything                                                      "
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__interrupted_turn_clears_visible_running_hook.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__interrupted_turn_clears_visible_running_hook.snap
+index 9e65fac..ffb72ec 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__interrupted_turn_clears_visible_running_hook.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__interrupted_turn_clears_visible_running_hook.snap
+@@ -4,7 +4,7 @@ expression: "format!(\"before interrupt:\\n{before_interrupt}\\nafter interrupt:
+ ---
+ before interrupt:
+ "                                                                                "
+-"• Working (0s • esc to interrupt) · checking command policy                     "
++"• Working (0s • esc esc to interrupt) · checking command policy                 "
+ "                                                                                "
+ "                                                                                "
+ "› Ask Codex to do anything                                                      "
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__manual_compaction_pending.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__manual_compaction_pending.snap
+index fff4016..f61b4e8 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__manual_compaction_pending.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__manual_compaction_pending.snap
+@@ -2,7 +2,7 @@
+ source: tui/src/chatwidget/tests/compaction_tests.rs
+ expression: "normalize_compaction_snapshot(render_bottom_popup(&chat, 80))"
+ ---
+-• Compacting context (<elapsed> • esc to interrupt)
++• Compacting context (<elapsed> • esc esc to interrupt)
+   └ Making room to continue.
+ 
+ 
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__overlapping_hook_live_cell_snapshot.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__overlapping_hook_live_cell_snapshot.snap
+index 25e7c7a..ac7eaf9 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__overlapping_hook_live_cell_snapshot.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__overlapping_hook_live_cell_snapshot.snap
+@@ -5,7 +5,7 @@ expression: "format!(\"{first_running_snapshot}\\n\\n{second_running_snapshot}\\
+ pre running
+ activity:
+ "                                                                                "
+-"• Thinking (0s • esc to interrupt) · checking command policy                    "
++"• Thinking (0s • esc esc to interrupt) · checking command policy                "
+ "                                                                                "
+ "                                                                                "
+ "› Ask Codex to do anything                                                      "
+@@ -17,7 +17,7 @@ history:
+ post running
+ activity:
+ "                                                                                "
+-"• Thinking (0s • esc to interrupt) · Running hooks                              "
++"• Thinking (0s • esc esc to interrupt) · Running hooks                          "
+ "                                                                                "
+ "                                                                                "
+ "› Ask Codex to do anything                                                      "
+@@ -29,7 +29,7 @@ history:
+ pre completed
+ activity:
+ "                                                                                "
+-"• Thinking (0s • esc to interrupt) · checking output policy                     "
++"• Thinking (0s • esc esc to interrupt) · checking output policy                 "
+ "                                                                                "
+ "                                                                                "
+ "› Ask Codex to do anything                                                      "
+@@ -41,7 +41,7 @@ history:
+ all completed
+ activity:
+ "                                                                                "
+-"• Thinking (0s • esc to interrupt)                                              "
++"• Thinking (0s • esc esc to interrupt)                                          "
+ "                                                                                "
+ "                                                                                "
+ "› Ask Codex to do anything                                                      "
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__preamble_keeps_working_status.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__preamble_keeps_working_status.snap
+index 16ef232..4d96495 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__preamble_keeps_working_status.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__preamble_keeps_working_status.snap
+@@ -3,7 +3,7 @@ source: tui/src/chatwidget/tests/exec_flow.rs
+ expression: normalized_backend_snapshot(terminal.backend())
+ ---
+ "                                                                                "
+-"• Working (0s • esc to interrupt)                                               "
++"• Working (0s • esc esc to interrupt)                                           "
+ "                                                                                "
+ "                                                                                "
+ "› Ask Codex to do anything                                                      "
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__reasoning_activity_row_80.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__reasoning_activity_row_80.snap
+index 862a70d..f1622ff 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__reasoning_activity_row_80.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__reasoning_activity_row_80.snap
+@@ -2,4 +2,4 @@
+ source: tui/src/chatwidget/tests/reasoning_status_tests.rs
+ expression: terminal.backend()
+ ---
+-"• Preparing evidence report (42s • esc to interrupt) · 1 background terminal ru…"
++"• Preparing evidence report (42s • esc esc to interrupt) · 1 background termina…"
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__reasoning_delta_restores_recreated_status_indicator.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__reasoning_delta_restores_recreated_status_indicator.snap
+index 6303a9d..46240f1 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__reasoning_delta_restores_recreated_status_indicator.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__reasoning_delta_restores_recreated_status_indicator.snap
+@@ -4,7 +4,7 @@ assertion_line: 4833
+ expression: normalized_backend_snapshot(terminal.backend())
+ ---
+ "                                                                                "
+-"• Checking files and preparing a response (0s • esc to interrupt) · 1 backgroun…"
++"• Checking files and preparing a response (0s • esc esc to interrupt) · 1 backg…"
+ "                                                                                "
+ "                                                                                "
+ "› Ask Codex to do anything                                                      "
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__replayed_in_progress_turn.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__replayed_in_progress_turn.snap
+index 4661f02..5d21fb6 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__replayed_in_progress_turn.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__replayed_in_progress_turn.snap
+@@ -2,7 +2,7 @@
+ source: tui/src/chatwidget/tests/history_replay.rs
+ expression: "normalize_completion_timestamps(& (render_bottom_popup(&chat, 80)))"
+ ---
+-• Working (0s • esc to interrupt)
++• Working (0s • esc esc to interrupt)
+ 
+ 
+ › Ask Codex to do anything
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__review_queues_user_messages_snapshot.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__review_queues_user_messages_snapshot.snap
+index 7f11c14..9610237 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__review_queues_user_messages_snapshot.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__review_queues_user_messages_snapshot.snap
+@@ -12,7 +12,7 @@ expression: normalize_snapshot_paths(term.backend().vt100().screen().contents())
+ 
+ 
+ 
+-• Working (0s • esc to interrupt)
++• Working (0s • esc esc to interrupt)
+ 
+ • Messages to be submitted at end of turn
+   ↳ Steer submitted while /review was running.
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__running_hooks_share_background_activity_row.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__running_hooks_share_background_activity_row.snap
+index 57e1611..d5eb840 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__running_hooks_share_background_activity_row.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__running_hooks_share_background_activity_row.snap
+@@ -4,7 +4,7 @@ expression: "format!(\"80 columns:\\n{}\\n120 columns:\\n{}\", hook_status_frame
+ ---
+ 80 columns:
+ "                                                                                "
+-"• Working (0s • esc to interrupt) · 1 background terminal running · /ps to view…"
++"• Working (0s • esc esc to interrupt) · 1 background terminal running · /ps to …"
+ "  └ checking command policy                                                     "
+ "                                                                                "
+ "                                                                                "
+@@ -13,7 +13,7 @@ expression: "format!(\"80 columns:\\n{}\\n120 columns:\\n{}\", hook_status_frame
+ "  GPT-5.6-Sol default · /tmp/project                                            "
+ 120 columns:
+ "                                                                                                                        "
+-"• Working (0s • esc to interrupt) · 1 background terminal running · /ps to view · /stop to close                        "
++"• Working (0s • esc esc to interrupt) · 1 background terminal running · /ps to view · /stop to close                    "
+ "  └ checking command policy                                                                                             "
+ "                                                                                                                        "
+ "                                                                                                                        "
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__slash_side_requests_forked_side_question_while_task_running.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__slash_side_requests_forked_side_question_while_task_running.snap
+index 558a9e0..d5ff1f0 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__slash_side_requests_forked_side_question_while_task_running.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__slash_side_requests_forked_side_question_while_task_running.snap
+@@ -3,7 +3,7 @@ source: tui/src/chatwidget/tests/side.rs
+ expression: normalized_backend_snapshot(terminal.backend())
+ ---
+ "                                                                                "
+-"• Working (0s • esc to interrupt)                                               "
++"• Working (0s • esc esc to interrupt)                                           "
+ "                                                                                "
+ "                                                                                "
+ "› Ask Codex to do anything                                                      "
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__status_widget_active.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__status_widget_active.snap
+index 0bbc057..c1f17c6 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__status_widget_active.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__status_widget_active.snap
+@@ -3,7 +3,7 @@ source: tui/src/chatwidget/tests/status_and_layout.rs
+ expression: normalized_backend_snapshot(terminal.backend())
+ ---
+ "                                                                                "
+-"• Analyzing (0s • esc to interrupt)                                             "
++"• Analyzing (0s • esc esc to interrupt)                                         "
+ "                                                                                "
+ "                                                                                "
+ "› Ask Codex to do anything                                                      "
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__unified_exec_begin_restores_working_status.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__unified_exec_begin_restores_working_status.snap
+index 68835e4..4fb38f1 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__unified_exec_begin_restores_working_status.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__unified_exec_begin_restores_working_status.snap
+@@ -3,7 +3,7 @@ source: tui/src/chatwidget/tests/exec_flow.rs
+ expression: normalized_backend_snapshot(terminal.backend())
+ ---
+ "                                                                                "
+-"• Working (0s • esc to interrupt) · 1 background terminal running · /ps to view…"
++"• Working (0s • esc esc to interrupt) · 1 background terminal running · /ps to …"
+ "                                                                                "
+ "                                                                                "
+ "› Ask Codex to do anything                                                      "
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__unified_exec_wait_status_renders_command_in_single_details_row.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__unified_exec_wait_status_renders_command_in_single_details_row.snap
+index 980874d..efc5b78 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__unified_exec_wait_status_renders_command_in_single_details_row.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__unified_exec_wait_status_renders_command_in_single_details_row.snap
+@@ -2,7 +2,7 @@
+ source: tui/src/chatwidget/tests/exec_flow.rs
+ expression: normalize_snapshot_paths(rendered)
+ ---
+-• Waiting for background terminal (0s • esc to …
++• Waiting for background terminal (0s • esc esc…
+   └ cargo test -p codex-core -- --exact…
+ 
+ 
 diff --git a/codex-rs/tui/src/chatwidget/tests/composer_submission.rs b/codex-rs/tui/src/chatwidget/tests/composer_submission.rs
 index 95b6ea1..d54a985 100644
 --- a/codex-rs/tui/src/chatwidget/tests/composer_submission.rs
@@ -306,6 +938,45 @@ index 2662954..30ad77b 100644
      chat.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
      next_interrupt_op(&mut op_rx);
      chat.on_interrupted_turn(TurnAbortReason::Interrupted);
+diff --git a/codex-rs/tui/src/chatwidget/tests/snapshots/codex_tui__chatwidget__tests__luna_reserve_usage_tests__luna_reserve_usage_running.snap b/codex-rs/tui/src/chatwidget/tests/snapshots/codex_tui__chatwidget__tests__luna_reserve_usage_tests__luna_reserve_usage_running.snap
+index 4f4664d..ab863b3 100644
+--- a/codex-rs/tui/src/chatwidget/tests/snapshots/codex_tui__chatwidget__tests__luna_reserve_usage_tests__luna_reserve_usage_running.snap
++++ b/codex-rs/tui/src/chatwidget/tests/snapshots/codex_tui__chatwidget__tests__luna_reserve_usage_tests__luna_reserve_usage_running.snap
+@@ -2,7 +2,7 @@
+ source: tui/src/chatwidget/tests/luna_reserve_usage_tests.rs
+ expression: rendered
+ ---
+-• Working (0s • esc to interrupt)
++• Working (0s • esc esc to interrupt)
+ 
+ 
+ › x
+diff --git a/codex-rs/tui/src/chatwidget/tests/snapshots/codex_tui__chatwidget__tests__questions_tests__questions_with_status_and_queue.snap b/codex-rs/tui/src/chatwidget/tests/snapshots/codex_tui__chatwidget__tests__questions_tests__questions_with_status_and_queue.snap
+index 6ce74d9..c4558d6 100644
+--- a/codex-rs/tui/src/chatwidget/tests/snapshots/codex_tui__chatwidget__tests__questions_tests__questions_with_status_and_queue.snap
++++ b/codex-rs/tui/src/chatwidget/tests/snapshots/codex_tui__chatwidget__tests__questions_tests__questions_with_status_and_queue.snap
+@@ -3,7 +3,7 @@ source: tui/src/chatwidget/tests/questions_tests.rs
+ expression: "format!(\"OPEN\\n{open}\\n\\nONLY QUESTIONS\\n{completed}\")"
+ ---
+ OPEN
+-• Working (0s • esc to interrupt)
++• Working (0s • esc esc to interrupt)
+ 
+ • Queued follow-up inputs
+   ↳ queued follow-up
+diff --git a/codex-rs/tui/src/chatwidget/tests/snapshots/codex_tui__chatwidget__tests__questions_tests__single_question_working_spacing.snap b/codex-rs/tui/src/chatwidget/tests/snapshots/codex_tui__chatwidget__tests__questions_tests__single_question_working_spacing.snap
+index be181f5..8270c49 100644
+--- a/codex-rs/tui/src/chatwidget/tests/snapshots/codex_tui__chatwidget__tests__questions_tests__single_question_working_spacing.snap
++++ b/codex-rs/tui/src/chatwidget/tests/snapshots/codex_tui__chatwidget__tests__questions_tests__single_question_working_spacing.snap
+@@ -2,7 +2,7 @@
+ source: tui/src/chatwidget/tests/questions_tests.rs
+ expression: rendered
+ ---
+-• Working (0s • esc to interrupt)
++• Working (0s • esc esc to interrupt)
+ 
+ • Queued follow-up inputs
+ 
 diff --git a/codex-rs/tui/src/chatwidget/tests/status_and_layout.rs b/codex-rs/tui/src/chatwidget/tests/status_and_layout.rs
 index 1c2308a..ce9bbe5 100644
 --- a/codex-rs/tui/src/chatwidget/tests/status_and_layout.rs
@@ -322,6 +993,63 @@ index 1c2308a..ce9bbe5 100644
      chat.handle_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
  
      assert_matches!(rx.try_recv(), Ok(AppEvent::CodexOp(Op::Interrupt)));
+diff --git a/codex-rs/tui/src/snapshots/codex_tui__screen_reader__tests__persisted_default_loads_and_renders_without_animation.snap b/codex-rs/tui/src/snapshots/codex_tui__screen_reader__tests__persisted_default_loads_and_renders_without_animation.snap
+index 9632a7a..b14776f 100644
+--- a/codex-rs/tui/src/snapshots/codex_tui__screen_reader__tests__persisted_default_loads_and_renders_without_animation.snap
++++ b/codex-rs/tui/src/snapshots/codex_tui__screen_reader__tests__persisted_default_loads_and_renders_without_animation.snap
+@@ -2,4 +2,4 @@
+ source: tui/src/screen_reader_tests.rs
+ expression: terminal.backend()
+ ---
+-"Reading the terminal output (0s • esc to interrupt)         "
++"Reading the terminal output (0s • esc esc to interrupt)     "
+diff --git a/codex-rs/tui/src/snapshots/codex_tui__status_indicator_widget__tests__hook_status_reflows_without_background_activity.snap b/codex-rs/tui/src/snapshots/codex_tui__status_indicator_widget__tests__hook_status_reflows_without_background_activity.snap
+index d15a97e..93fe5d8 100644
+--- a/codex-rs/tui/src/snapshots/codex_tui__status_indicator_widget__tests__hook_status_reflows_without_background_activity.snap
++++ b/codex-rs/tui/src/snapshots/codex_tui__status_indicator_widget__tests__hook_status_reflows_without_background_activity.snap
+@@ -2,20 +2,20 @@
+ source: tui/src/status_indicator_widget.rs
+ expression: "frames.join(\"\\n\")"
+ ---
+-61 columns:
+-"Working (0s • esc to interrupt) · checking 日本語 ｶﾞﾊﾟ policy" Hidden by multi-width symbols: [(44, " "), (46, " "), (48, " "), (51, " "), (53, " ")]
+-"  └ existing details                                         "
++65 columns:
++"Working (0s • esc esc to interrupt) · checking 日本語 ｶﾞﾊﾟ policy" Hidden by multi-width symbols: [(48, " "), (50, " "), (52, " "), (55, " "), (57, " ")]
++"  └ existing details                                             "
+ 
+-60 columns:
+-"Working (0s • esc to interrupt)                             "
+-"  └ checking 日本語 ｶﾞﾊﾟ policy                             " Hidden by multi-width symbols: [(14, " "), (16, " "), (18, " "), (21, " "), (23, " ")]
+-"  └ existing details                                        "
++64 columns:
++"Working (0s • esc esc to interrupt)                             "
++"  └ checking 日本語 ｶﾞﾊﾟ policy                                 " Hidden by multi-width symbols: [(14, " "), (16, " "), (18, " "), (21, " "), (23, " ")]
++"  └ existing details                                            "
+ 
+ 24 columns:
+-"Working (0s • esc to in…"
++"Working (0s • esc esc t…"
+ "  └ checking 日本語 ｶﾞ… " Hidden by multi-width symbols: [(14, " "), (16, " "), (18, " "), (21, " ")]
+ "  └ existing details    "
+ 
+-61 columns:
+-"Working (0s • esc to interrupt) · checking 日本語 ｶﾞﾊﾟ policy" Hidden by multi-width symbols: [(44, " "), (46, " "), (48, " "), (51, " "), (53, " ")]
+-"  └ existing details                                         "
++65 columns:
++"Working (0s • esc esc to interrupt) · checking 日本語 ｶﾞﾊﾟ policy" Hidden by multi-width symbols: [(48, " "), (50, " "), (52, " "), (55, " "), (57, " ")]
++"  └ existing details                                             "
+diff --git a/codex-rs/tui/src/snapshots/codex_tui__status_indicator_widget__tests__renders_with_working_header.snap b/codex-rs/tui/src/snapshots/codex_tui__status_indicator_widget__tests__renders_with_working_header.snap
+index 2b80830..3fa43b3 100644
+--- a/codex-rs/tui/src/snapshots/codex_tui__status_indicator_widget__tests__renders_with_working_header.snap
++++ b/codex-rs/tui/src/snapshots/codex_tui__status_indicator_widget__tests__renders_with_working_header.snap
+@@ -2,5 +2,5 @@
+ source: tui/src/status_indicator_widget.rs
+ expression: terminal.backend()
+ ---
+-"• Working (0s • esc to interrupt)                                               "
++"• Working (0s • esc esc to interrupt)                                           "
+ "                                                                                "
 diff --git a/codex-rs/tui/src/status_indicator_widget.rs b/codex-rs/tui/src/status_indicator_widget.rs
 index b3e5ede..aa33740 100644
 --- a/codex-rs/tui/src/status_indicator_widget.rs
@@ -361,3 +1089,33 @@ index b3e5ede..aa33740 100644
              if let Some(background) = background {
                  expected.push_str(&format!(" · {background}"));
              }
+diff --git a/codex-rs/tui/src/status_indicator_widget/snapshots/codex_tui__status_indicator_widget__effects_tests__shimmer_and_progress_are_independent_and_obey_master_switch.snap b/codex-rs/tui/src/status_indicator_widget/snapshots/codex_tui__status_indicator_widget__effects_tests__shimmer_and_progress_are_independent_and_obey_master_switch.snap
+index 2214c90..ec8094f 100644
+--- a/codex-rs/tui/src/status_indicator_widget/snapshots/codex_tui__status_indicator_widget__effects_tests__shimmer_and_progress_are_independent_and_obey_master_switch.snap
++++ b/codex-rs/tui/src/status_indicator_widget/snapshots/codex_tui__status_indicator_widget__effects_tests__shimmer_and_progress_are_independent_and_obey_master_switch.snap
+@@ -3,17 +3,17 @@ source: tui/src/status_indicator_widget/effects_tests.rs
+ expression: "snapshots.join(\"\\n\\n\")"
+ ---
+ animations=true, shimmer=false, progress=false
+-Working (0s • esc to interrupt)
+-[Span::from("Working"), Span::from(" "), Span::from("(0s • ").dim(), Span::from("esc").fg(Color::Rgb(240, 240, 240)).bold().not_dim(), Span::from(" to interrupt)").dim()]
++Working (0s • esc esc to interrupt)
++[Span::from("Working"), Span::from(" "), Span::from("(0s • ").dim(), Span::from("esc esc").fg(Color::Rgb(240, 240, 240)).bold().not_dim(), Span::from(" to interrupt)").dim()]
+ 
+ animations=true, shimmer=false, progress=true
+-• Working (0s • esc to interrupt)
+-[Span::from("Working"), Span::from(" "), Span::from("(0s • ").dim(), Span::from("esc").fg(Color::Rgb(240, 240, 240)).bold().not_dim(), Span::from(" to interrupt)").dim()]
++• Working (0s • esc esc to interrupt)
++[Span::from("Working"), Span::from(" "), Span::from("(0s • ").dim(), Span::from("esc esc").fg(Color::Rgb(240, 240, 240)).bold().not_dim(), Span::from(" to interrupt)").dim()]
+ 
+ animations=true, shimmer=true, progress=false
+-Working (0s • esc to interrupt)
+-[Span::from("W").fg(Color::Rgb(128, 128, 128)), Span::from("o").fg(Color::Rgb(128, 128, 128)), Span::from("r").fg(Color::Rgb(128, 128, 128)), Span::from("k").fg(Color::Rgb(128, 128, 128)), Span::from("i").fg(Color::Rgb(128, 128, 128)), Span::from("n").fg(Color::Rgb(128, 128, 128)), Span::from("g").fg(Color::Rgb(128, 128, 128)), Span::from(" "), Span::from("(0s • ").dim(), Span::from("esc").fg(Color::Rgb(240, 240, 240)).bold().not_dim(), Span::from(" to interrupt)").dim()]
++Working (0s • esc esc to interrupt)
++[Span::from("W").fg(Color::Rgb(128, 128, 128)), Span::from("o").fg(Color::Rgb(128, 128, 128)), Span::from("r").fg(Color::Rgb(128, 128, 128)), Span::from("k").fg(Color::Rgb(128, 128, 128)), Span::from("i").fg(Color::Rgb(128, 128, 128)), Span::from("n").fg(Color::Rgb(128, 128, 128)), Span::from("g").fg(Color::Rgb(128, 128, 128)), Span::from(" "), Span::from("(0s • ").dim(), Span::from("esc esc").fg(Color::Rgb(240, 240, 240)).bold().not_dim(), Span::from(" to interrupt)").dim()]
+ 
+ animations=false, shimmer=true, progress=true
+-Working (0s • esc to interrupt)
+-[Span::from("Working"), Span::from(" "), Span::from("(0s • ").dim(), Span::from("esc").fg(Color::Rgb(240, 240, 240)).bold().not_dim(), Span::from(" to interrupt)").dim()]
++Working (0s • esc esc to interrupt)
++[Span::from("Working"), Span::from(" "), Span::from("(0s • ").dim(), Span::from("esc esc").fg(Color::Rgb(240, 240, 240)).bold().not_dim(), Span::from(" to interrupt)").dim()]

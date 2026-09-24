@@ -24,6 +24,7 @@ PY
       exit 0
     fi
     printf 'Installing Codex %s to match the reviewed patch manifest\n' "$reviewed_version"
+    cd -- "$HOME"
     sudo npm install -g "@openai/codex@$reviewed_version"
     shift
     ;;
