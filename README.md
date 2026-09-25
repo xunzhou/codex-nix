@@ -38,7 +38,7 @@ kill -USR1 "$(pgrep -n codex)"
 ## Automatic updates
 
 [GitHub Actions](https://github.com/xunzhou/codex-nix/actions/workflows/native.yml)
-checks upstream every four hours, builds the patched binaries, tests them, and
+checks upstream once a day, builds the patched binaries, tests them, and
 publishes a release. Native releases run independently of Nix builds.
 
 Simple patch drift is rebased automatically. Conflicts or failing tests stop the

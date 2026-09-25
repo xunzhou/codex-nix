@@ -2,7 +2,7 @@ name: Update native Codex
 run-name: Native Codex (${{ inputs.version || 'latest stable' }})
 on:
   schedule:
-    - cron: '43 */4 * * *'
+    - cron: '43 4 * * *'
   push:
     branches: [main]
     paths: ['native-build.json', 'patches/**', 'scripts/**', 'tests/**', '.github/workflows/native.yml']
