@@ -53,7 +53,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential pkg-config libssl-dev libcap-dev libasound2-dev clang cmake
           sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" bash scripts/reclaim-runner-disk.sh
-          cargo install cargo-nextest --locked --version 0.9.146
+          curl -fL --retry 3 -o "$RUNNER_TEMP/nextest.tar.gz" https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.146/cargo-nextest-0.9.146-x86_64-unknown-linux-gnu.tar.gz
+          echo '682c21b777c333e96fd532e114d3a5a894e0729ab88d94c0a9f20f8419695428  '"$RUNNER_TEMP/nextest.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/nextest"
+          tar -xzf "$RUNNER_TEMP/nextest.tar.gz" -C "$RUNNER_TEMP/nextest" cargo-nextest
+          echo "$RUNNER_TEMP/nextest" >> "$GITHUB_PATH"
       - name: Build, test patches, and verify binary pair
         if: steps.prepare.outputs.build == 'true'
         env:
@@ -87,6 +91,20 @@ jobs:
       - name: Publish immutable native release
         if: steps.prepare.outputs.build == 'true' && github.ref == 'refs/heads/main'
         run: python3 scripts/native-release.py publish --assets dist
+      - name: Verify public release download
+        if: github.ref == 'refs/heads/main'
+        env:
+          RELEASE_KEY: ${{ steps.prepare.outputs.key }}
+        run: |
+          python3 - <<'PYTHON'
+          import importlib.util, os
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location('client', 'scripts/install-release.py')
+          client = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(client)
+          release = client.request('/releases/tags/native-' + os.environ['RELEASE_KEY'])
+          client.prepare(release, Path(os.environ['RUNNER_TEMP']) / 'public-download')
+          PYTHON
       - name: Retain build and diagnostic artifacts
         if: always()
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
