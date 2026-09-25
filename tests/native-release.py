@@ -5,6 +5,8 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
+from unittest.mock import patch
 from pathlib import Path
 import tarfile
 import tempfile
@@ -43,6 +45,25 @@ class NativeReleaseTests(unittest.TestCase):
 
     def publish(self):
         m.publish(self.api, self.assets, fixtures.publisher, fixtures.native)
+
+    def test_recovery_requires_successful_native_build_on_main(self):
+        for branch, conclusion, accepted in [('main', 'success', True), ('feature', 'success', False), ('main', 'failure', False)]:
+            with self.subTest(branch=branch, conclusion=conclusion):
+                run = {'head_branch': branch, 'path': '.github/workflows/native.yml'}
+                jobs = {'jobs': [{'steps': [{'name': 'Build, test patches, and verify binary pair', 'conclusion': conclusion}]}]}
+                api = fixtures.FakeGitHub()
+                api.request = lambda path: jobs if '/jobs?' in path else run
+                output = self.assets / 'output'
+                with patch.object(m.sys if hasattr(m, 'sys') else __import__('sys'), 'argv', ['native-release.py', 'prepare', '--recover-run', '123']), \
+                     patch.dict(os.environ, GH_TOKEN='test', GITHUB_OUTPUT=str(output)), \
+                     patch.object(m, 'module', side_effect=lambda name, filename: fixtures.publisher if name == 'publisher' else fixtures.native), \
+                     patch.object(fixtures.publisher, 'GitHub', return_value=api):
+                    if accepted:
+                        m.main()
+                        self.assertIn('recover=true', output.read_text())
+                    else:
+                        with self.assertRaisesRegex(ValueError, 'tested native build'):
+                            m.main()
 
     def test_publish_and_verify_without_overwrite(self):
         self.publish()
