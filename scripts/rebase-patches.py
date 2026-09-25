@@ -41,7 +41,7 @@ def rebase(root, source, previous, patches, version):
         for item in tree.iterdir():
             if item.name != '.git':
                 shutil.rmtree(item) if item.is_dir() and not item.is_symlink() else item.unlink()
-        shutil.copytree(source, tree, dirs_exist_ok=True)
+        shutil.copytree(source, tree, dirs_exist_ok=True, symlinks=True)
         git(tree, 'add', '-A', '-f')
         git(tree, 'commit', '-qm', 'new upstream source')
         rebased = []
@@ -66,5 +66,5 @@ def rebase(root, source, previous, patches, version):
             destination.write_bytes(patch)
         for item in source.iterdir():
             shutil.rmtree(item) if item.is_dir() and not item.is_symlink() else item.unlink()
-        shutil.copytree(tree, source, dirs_exist_ok=True, ignore=shutil.ignore_patterns('.git'))
+        shutil.copytree(tree, source, dirs_exist_ok=True, symlinks=True, ignore=shutil.ignore_patterns('.git'))
         return names

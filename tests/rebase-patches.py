@@ -21,6 +21,7 @@ class RebaseTests(unittest.TestCase):
             old.mkdir()
             original = ''.join(f'line {i}\n' for i in range(30))
             (old / 'example').write_text(original)
+            (old / 'link').symlink_to('example')
             archive = root / 'source.tar.gz'
             with tarfile.open(archive, 'w:gz') as tar:
                 tar.add(old, arcname='release')
@@ -37,6 +38,7 @@ class RebaseTests(unittest.TestCase):
             if conflict:
                 new = new.replace('line 15\n', 'conflicting upstream\n')
             (source / 'example').write_text(new)
+            (source / 'link').symlink_to('example')
             if conflict:
                 with self.assertRaises(subprocess.CalledProcessError):
                     m.rebase(root, source, previous, ['example.patch'], '0.2.0')
@@ -45,6 +47,7 @@ class RebaseTests(unittest.TestCase):
             else:
                 names = m.rebase(root, source, previous, ['example.patch'], '0.2.0')
                 self.assertEqual(names, ['0.2.0/example.patch'])
+                self.assertTrue((source / 'link').is_symlink())
                 self.assertEqual((source / 'example').read_text(), new.replace('line 15\n', 'patched\n'))
                 (source / 'example').write_text(new)
                 m.git(source, 'apply', '--check', str(root / 'patches' / names[0]))
