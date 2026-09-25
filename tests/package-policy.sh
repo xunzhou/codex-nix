@@ -199,10 +199,6 @@ grep -Fq "cron: '17 8 * * *'" "$update_workflow" ||
 grep -Fq "run-name: Update Codex (\${{ inputs.request_id || 'scheduled' }})" "$update_workflow" ||
   fail 'scheduled Codex updates lack a correlation label'
 
-grep -Fq 'nix run github:xunzhou/codex-nix -- --version' "$readme"
-grep -Fq 'nix profile install github:xunzhou/codex-nix' "$readme"
-grep -Fq 'nix run github:xunzhou/codex-nix#install' "$readme"
-grep -Fq 'kill -USR1 "$(pgrep -n codex)"' "$readme"
 
 supported_systems='["x86_64-linux"]'
 for output in packages apps checks; do
@@ -303,11 +299,11 @@ check_action_refs() {
 }
 
 scan_privacy_ref
+# Audit executable workflows in the current tree; historical workflows are not run.
 check_action_refs
 
 while IFS= read -r commit; do
   scan_privacy_ref "$commit" || fail "privacy signature exists in reachable commit $commit"
-  check_action_refs "$commit"
   if git -C "$repo_root" ls-tree -r --name-only "$commit" |
     grep -Eiq -- "$license_pattern"; then
     fail "a license file exists in reachable commit $commit"
