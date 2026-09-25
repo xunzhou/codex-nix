@@ -12,11 +12,16 @@ on:
         description: Stable upstream version; blank selects latest
         type: string
         required: false
+      recover_run:
+        description: Recover a tested build from this Actions run without recompiling
+        type: string
+        required: false
 concurrency:
   group: native-codex
   cancel-in-progress: false
 permissions:
   contents: read
+  actions: read
 jobs:
   release:
     runs-on: ubuntu-24.04
@@ -26,6 +31,7 @@ jobs:
       sha: ${{ steps.candidate.outputs.sha }}
       key: ${{ steps.prepare.outputs.key }}
       build: ${{ steps.prepare.outputs.build }}
+      build_revision: ${{ steps.recover.outputs.revision || steps.candidate.outputs.sha }}
     env:
       CARGO_BUILD_JOBS: 2
       TERM: xterm-256color
@@ -39,9 +45,10 @@ jobs:
         id: prepare
         env:
           REQUESTED_VERSION: ${{ inputs.version }}
+          RECOVER_RUN: ${{ inputs.recover_run }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          python3 scripts/native-release.py prepare --version "$REQUESTED_VERSION"
+          python3 scripts/native-release.py prepare --version "$REQUESTED_VERSION" --recover-run "$RECOVER_RUN"
           echo "base=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Validate updater and installer
         if: steps.prepare.outputs.build == 'true'
@@ -54,7 +61,7 @@ jobs:
           python3 tests/release-setup.py
           git diff --check
       - name: Install build and test dependencies
-        if: steps.prepare.outputs.build == 'true'
+        if: steps.prepare.outputs.build == 'true' && steps.prepare.outputs.recover != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential pkg-config libssl-dev libcap-dev libasound2-dev clang cmake
@@ -65,7 +72,7 @@ jobs:
           tar -xzf "$RUNNER_TEMP/nextest.tar.gz" -C "$RUNNER_TEMP/nextest" cargo-nextest
           echo "$RUNNER_TEMP/nextest" >> "$GITHUB_PATH"
       - name: Build, test patches, and verify binary pair
-        if: steps.prepare.outputs.build == 'true'
+        if: steps.prepare.outputs.build == 'true' && steps.prepare.outputs.recover != 'true'
         env:
           VERSION: ${{ steps.prepare.outputs.version }}
           CODEX_BUILD_MANIFEST: ${{ github.workspace }}/native-build.json
@@ -84,6 +91,29 @@ jobs:
             cat linkage.txt
             if grep -E 'not found|/nix/store/' linkage.txt; then exit 1; fi
           done
+      - name: Download retained verified build
+        if: steps.prepare.outputs.recover == 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: native-release-${{ inputs.recover_run }}
+          run-id: ${{ inputs.recover_run }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/recovered-native
+      - name: Restore recovered binary and build provenance
+        id: recover
+        if: steps.prepare.outputs.recover == 'true'
+        run: |
+          mkdir -p dist
+          cp "$RUNNER_TEMP/recovered-native/dist/codex-linux-x86_64.tar.gz" dist/
+          python3 - <<'PYTHON'
+          import json, os, re
+          from pathlib import Path
+          metadata = json.loads((Path(os.environ['RUNNER_TEMP']) / 'recovered-native/dist/release.json').read_text())
+          revision = metadata.get('build_revision', metadata['revision'])
+          assert re.fullmatch(r'[a-f0-9]{40}', revision)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('revision=' + revision + '\n')
+          PYTHON
       - name: Save verified candidate
         id: candidate
         if: steps.prepare.outputs.build == 'true'
@@ -152,10 +182,17 @@ jobs:
         run: |
           if [[ "$(git rev-parse HEAD)" != "$BASE_SHA" ]]; then
             git push origin HEAD:refs/heads/main
+          else
+            # GITHUB_TOKEN cannot create a release on an old workflow revision.
+            # Use current main; the publisher rejects any changed binary recipe.
+            git fetch origin main
+            git checkout --detach FETCH_HEAD
           fi
       - name: Publish immutable native release
         env:
           GH_TOKEN: ${{ github.token }}
+          CODEX_BUILD_RUN_ID: ${{ inputs.recover_run || github.run_id }}
+          CODEX_BUILD_REVISION: ${{ needs.release.outputs.build_revision }}
         run: python3 scripts/native-release.py publish --assets "$RUNNER_TEMP/native-assets/dist"
 
   download-smoke:

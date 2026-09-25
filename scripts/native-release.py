@@ -25,10 +25,29 @@ def main():
     parser.add_argument('action', choices=['prepare', 'publish'])
     parser.add_argument('--version', default='')
     parser.add_argument('--assets', type=Path)
+    parser.add_argument('--recover-run', default='')
     args = parser.parse_args()
     publisher = module('publisher', 'publish-release.py')
     native = module('native', 'install-source-codex.py')
     api = publisher.GitHub('xunzhou/codex-nix', os.environ['GH_TOKEN'])
+    if args.action == 'prepare' and args.recover_run:
+        if not re.fullmatch(r'[1-9][0-9]*', args.recover_run):
+            raise ValueError('recovery run must be a numeric Actions run ID')
+        run = api.request('/actions/runs/' + args.recover_run)
+        jobs = api.request('/actions/runs/' + args.recover_run + '/jobs?per_page=100')
+        if run['head_branch'] != 'main' or run['path'] != '.github/workflows/native.yml' or not any(
+            step['name'] == 'Build, test patches, and verify binary pair' and step['conclusion'] == 'success'
+            for job in jobs['jobs'] for step in job['steps']):
+            raise ValueError('recovery requires a tested native build from main')
+        data = json.loads((ROOT / 'native-build.json').read_text())
+        version = data['default_version']
+        if args.version and args.version != version:
+            raise ValueError('recovery version must match the current native recipe')
+        recipe = native.load_recipe(ROOT / 'native-build.json', version)
+        key = native.recipe_key(recipe, [ROOT / 'patches' / p for p in recipe['patches']], version)
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+            output.write(f'version={version}\nkey={key}\nbuild=true\nrecover=true\n')
+        return
     if args.action == 'prepare':
         upstream = publisher.GitHub('openai/codex', os.environ['GH_TOKEN'])
         releases = []
@@ -82,6 +101,10 @@ def publish(api, assets, publisher, native):
     metadata = {'schema': 1, 'version': version, 'key': key,
                 'revision': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
                 'sha256': {name: publisher.sha256(assets / name) for name in ['codex-linux-x86_64.tar.gz', 'recipe.tar.gz']}}
+    if os.environ.get('CODEX_BUILD_RUN_ID'):
+        metadata['build_run_id'] = int(os.environ['CODEX_BUILD_RUN_ID'])
+    if os.environ.get('CODEX_BUILD_REVISION'):
+        metadata['build_revision'] = os.environ['CODEX_BUILD_REVISION']
     (assets / 'release.json').write_text(json.dumps(metadata, indent=2) + '\n')
     tag = 'native-' + key
     release = api.request('/releases/tags/' + tag)
