@@ -44,6 +44,8 @@ jobs:
           python3 tests/manifest.py
           python3 tests/rebase-patches.py
           python3 tests/release-client.py
+          python3 tests/native-release.py
+          python3 tests/release-setup.py
           git diff --check
       - name: Install build and test dependencies
         if: steps.prepare.outputs.build == 'true'

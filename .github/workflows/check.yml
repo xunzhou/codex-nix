@@ -30,6 +30,10 @@ jobs:
           python3 tests/source-patcher.py
           python3 tests/manifest.py
           python3 tests/release.py
+          python3 tests/rebase-patches.py
+          python3 tests/release-client.py
+          python3 tests/native-release.py
+          python3 tests/release-setup.py
           bash tests/package-policy.sh
           bash tests/update.sh
           bash tests/bundle.sh

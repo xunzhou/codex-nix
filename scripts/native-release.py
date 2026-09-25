@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Select stable upstream versions and publish independently verified native releases."""
 import argparse
-import hashlib
+import gzip
+import io
 import importlib.util
 import json
 import os
@@ -56,17 +57,28 @@ def main():
             output.write(f'version={version}\nkey={key}\nbuild={str(not ready).lower()}\n')
         print(f'Codex {version}: ' + ('release already available' if ready else 'build required'))
         return
+    publish(api, args.assets, publisher, native)
+
+
+def publish(api, assets, publisher, native):
     data = json.loads((ROOT / 'native-build.json').read_text())
     version = data['default_version']
     spec = native.load_recipe(ROOT / 'native-build.json', version)
     key = native.recipe_key(spec, [ROOT / 'patches' / p for p in spec['patches']], version)
-    assets = args.assets
     publisher.native_identity(assets / 'codex-linux-x86_64.tar.gz', {'version': version, 'key': key})
-    with tarfile.open(assets / 'recipe.tar.gz', 'w:gz') as archive:
-        archive.add(ROOT / 'native-build.json', arcname='build.json')
-        archive.add(ROOT / 'scripts/install-source-codex.py', arcname='scripts/install-source-codex.py')
-        for patch in spec['patches']:
-            archive.add(ROOT / 'patches' / patch, arcname='patches/' + patch)
+    files = {'build.json': ROOT / 'native-build.json',
+             'scripts/install-source-codex.py': ROOT / 'scripts/install-source-codex.py',
+             **{'patches/' + p: ROOT / 'patches' / p for p in spec['patches']}}
+    # Canonical metadata makes the recipe archive identical across clean checkouts.
+    with (assets / 'recipe.tar.gz').open('wb') as output:
+        with gzip.GzipFile(filename='', fileobj=output, mode='wb', mtime=0) as compressed:
+            with tarfile.open(fileobj=compressed, mode='w') as archive:
+                for name, path in sorted(files.items()):
+                    content = path.read_bytes()
+                    info = tarfile.TarInfo(name)
+                    info.size = len(content)
+                    info.mode = 0o644
+                    archive.addfile(info, io.BytesIO(content))
     metadata = {'schema': 1, 'version': version, 'key': key,
                 'revision': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
                 'sha256': {name: publisher.sha256(assets / name) for name in ['codex-linux-x86_64.tar.gz', 'recipe.tar.gz']}}
@@ -81,26 +93,42 @@ def main():
                     'release.json records checksums and the source revision.'})
     expected = {'codex-linux-x86_64.tar.gz', 'recipe.tar.gz', 'release.json'}
     remote = {a['name']: a for a in release['assets']}
-    if set(remote) - expected:
-        raise ValueError('unexpected release asset')
-    if not release['draft']:
-        if set(remote) != expected:
-            raise ValueError('incomplete published release')
-        print('Release already published; immutable assets retained')
-        return
-    # Never overwrite assets, including when resuming a partially uploaded draft.
-    for name in expected:
-        if name in remote:
-            if remote[name]['digest'] != 'sha256:' + publisher.sha256(assets / name):
-                raise ValueError('partial draft differs; resume with original run artifacts')
-        else:
-            api.upload(release['id'], assets / name)
+    if set(remote) - expected or len(remote) != len(release['assets']):
+        raise ValueError('unexpected or duplicate release asset')
+    if not release['draft'] and set(remote) != expected:
+        raise ValueError('incomplete published release')
+    # Reuse original uploaded bytes after a partial failure. Validate their recipe
+    # before accepting them; never overwrite a remote asset with a later rebuild.
+    for name, asset in remote.items():
+        if asset['state'] != 'uploaded':
+            raise ValueError('incomplete remote upload')
+        api.download(asset, assets / name)
+    publisher.native_identity(assets / 'codex-linux-x86_64.tar.gz', {'version': version, 'key': key})
+    with tarfile.open(assets / 'recipe.tar.gz') as archive:
+        members = archive.getmembers()
+        if len(members) != len(files) or {m.name for m in members} != set(files) or any(not m.isfile() for m in members):
+            raise ValueError('remote recipe inventory mismatch')
+        for name, path in files.items():
+            if archive.extractfile(name).read() != path.read_bytes():
+                raise ValueError('remote recipe content mismatch')
+    checksums = {name: publisher.sha256(assets / name) for name in ['codex-linux-x86_64.tar.gz', 'recipe.tar.gz']}
+    if 'release.json' in remote:
+        metadata = json.loads((assets / 'release.json').read_text())
+        if metadata.get('schema') != 1 or metadata.get('version') != version or metadata.get('key') != key or metadata.get('sha256') != checksums or not re.fullmatch(r'[a-f0-9]{40}', metadata.get('revision', '')):
+            raise ValueError('remote release manifest mismatch')
+    else:
+        metadata['sha256'] = checksums
+        (assets / 'release.json').write_text(json.dumps(metadata, indent=2) + '\n')
+    for name in sorted(expected - remote.keys()):
+        api.upload(release['id'], assets / name)
     final = api.request(f'/releases/{release["id"]}')
     if {a['name'] for a in final['assets']} != expected or any(
         a['state'] != 'uploaded' or a['digest'] != 'sha256:' + publisher.sha256(assets / a['name']) for a in final['assets']):
         raise ValueError('final release verification failed')
-    api.request(f'/releases/{release["id"]}', {'draft': False, 'make_latest': 'false'}, method='PATCH')
+    if final['draft']:
+        api.request(f'/releases/{release["id"]}', {'draft': False, 'make_latest': 'false'}, method='PATCH')
     print(f'Published https://github.com/xunzhou/codex-nix/releases/tag/{tag}')
+
 
 if __name__ == '__main__':
     main()
