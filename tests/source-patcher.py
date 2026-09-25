@@ -224,6 +224,22 @@ sys.exit(subprocess.call(args))
         for name in ('codex','codex-code-mode-host'):
             self.assertEqual((self.vendor / name).read_text(), 'stock '+name)
 
+    def test_elf_target_reads_interpreter(self):
+        shell = Path(shutil.which('sh')).resolve()
+        self.assertRegex(PATCHER.elf_target(shell), r'-unknown-linux-(gnu|musl)$')
+        self.assertIsNone(PATCHER.elf_target(self.vendor / 'codex'))
+
+    def test_package_target_follows_installed_binary(self):
+        manifest = self.vendor.parent / 'codex-package.json'
+        manifest.write_text('{"version": "0.154.0", "target": "x86_64-unknown-linux-musl", "entrypoint": "bin/codex"}')
+        with mock.patch.object(PATCHER, 'elf_target', return_value='x86_64-unknown-linux-gnu'):
+            PATCHER.sync_package_target(self.vendor, [])
+            data = json.loads(manifest.read_text())
+            self.assertEqual(data, {'version': '0.154.0', 'target': 'x86_64-unknown-linux-gnu', 'entrypoint': 'bin/codex'})
+            stamp = manifest.stat().st_mtime_ns
+            PATCHER.sync_package_target(self.vendor, [])
+            self.assertEqual(manifest.stat().st_mtime_ns, stamp)
+
     def test_setup_replaces_only_codex_step_and_is_idempotent(self):
         prefix = self.root / 'home'
         (prefix / 'bin').mkdir(parents=True)

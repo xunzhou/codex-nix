@@ -11,6 +11,7 @@ import platform
 import re
 import shlex
 import shutil
+import struct
 import subprocess
 import sys
 import tarfile
@@ -240,6 +241,52 @@ def install_bundle(bundle, vendor, privilege, binaries):
                 run(*privilege, "rm", "-f", "--", str(path))
 
 
+def elf_target(binary):
+    """Rust target triple of a little-endian 64-bit Linux executable, or None."""
+    with binary.open("rb") as stream:
+        header = stream.read(64)
+        if len(header) < 64 or header[:6] != b"\x7fELF\x02\x01":
+            return None
+        machine = {0x3E: "x86_64", 0xB7: "aarch64"}.get(struct.unpack_from("<H", header, 18)[0])
+        (offset,) = struct.unpack_from("<Q", header, 32)
+        entry_size, entries = struct.unpack_from("<HH", header, 54)
+        interpreter = b""
+        for index in range(entries):
+            stream.seek(offset + index * entry_size)
+            kind, _, start, _, _, size = struct.unpack("<IIQQQQ", stream.read(40))
+            if kind == 3:  # PT_INTERP
+                stream.seek(start)
+                interpreter = stream.read(size)
+    if machine is None:
+        return None
+    # Static musl binaries have no interpreter; glibc ones load ld-linux.
+    return f"{machine}-unknown-linux-{'gnu' if b'/ld-linux' in interpreter else 'musl'}"
+
+
+def sync_package_target(vendor, privilege):
+    """Point the npm package manifest at the installed binary's real target.
+
+    Patched builds are glibc executables placed in npm's musl package. Since
+    0.157 the app-server daemon refuses to start unless codex-package.json
+    names the running executable's target.
+    """
+    manifest = vendor.parent / "codex-package.json"
+    target = elf_target(vendor / "codex")
+    if not manifest.is_file() or target is None:
+        return
+    metadata = json.loads(manifest.read_text())
+    if metadata.get("target") == target:
+        return
+    metadata["target"] = target
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as pending:
+        pending.write(json.dumps(metadata, indent=2) + "\n")
+    try:
+        run(*privilege, "install", "-m", "0644", pending.name, str(manifest))
+    finally:
+        os.unlink(pending.name)
+    print(f"Updated {manifest.name} target to {target}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build-only", action="store_true", help="build a release bundle without an npm installation")
@@ -349,6 +396,7 @@ def main():
             print(f"Verified native bundle: {bundle}")
         else:
             install_bundle(bundle, vendor, privilege, binaries)
+            sync_package_target(vendor, privilege)
             print(f"Codex {version}: complete patch set installed")
 
 
