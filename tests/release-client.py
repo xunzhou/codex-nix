@@ -2,6 +2,7 @@
 import importlib.util
 import io
 import json
+import os
 import shutil
 from unittest.mock import patch
 from pathlib import Path
@@ -28,6 +29,22 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(m.select([release('0.9.0'), release('0.10.0')], '0.9.0')['tag_name'], release('0.9.0')['tag_name'])
         with self.assertRaises(ValueError):
             m.select([release('0.10.0')], '0.9.0')
+    def test_install_reuses_prefetched_release_without_network(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'package.json').write_text(json.dumps({'version': '0.10.0'}))
+            saved = release('0.10.0')
+            (root / 'selected.json').write_text(json.dumps(saved))
+            with patch.dict(os.environ, CODEX_PACKAGE_ROOT=str(root), CODEX_RELEASE_CACHE=str(root)), \
+                 patch.object(m.sys, 'argv', ['install-release.py']), \
+                 patch.object(m, 'request', side_effect=OSError('offline')) as request, \
+                 patch.object(m, 'prepare', return_value=(root, '0.10.0')) as prepare, \
+                 patch.object(m.subprocess, 'run') as run:
+                m.main()
+            request.assert_not_called()
+            prepare.assert_called_once_with(saved, root)
+            self.assertEqual(run.call_args.kwargs['env']['CODEX_INSTALL_MODE'], 'download')
+
     def test_complete_release_verification_and_corruption(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

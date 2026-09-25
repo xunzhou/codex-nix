@@ -112,20 +112,34 @@ def main():
         entry = Path(os.environ.get('CODEX_MANAGED_ENTRYPOINT', '/usr/local/bin/codex'))
         package = Path(os.environ.get('CODEX_PACKAGE_ROOT', entry.resolve().parent.parent))
         version = json.loads((package / 'package.json').read_text())['version']
-    releases = []
-    page = 1
-    while True:
-        batch = request(f'/releases?per_page=100&page={page}')
-        releases.extend(batch)
-        if len(batch) < 100:
-            break
-        page += 1
-    release = select(releases, version)
     cache = Path(os.environ.get('CODEX_RELEASE_CACHE', Path.home() / '.cache/codex-releases'))
     cache.mkdir(parents=True, exist_ok=True)
     with (cache / 'installer.lock').open('w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        selection = cache / 'selected.json'
+        release = None
+        if version is not None and selection.is_file():
+            saved = json.loads(selection.read_text())
+            match = TAG.fullmatch(saved.get('tag_name', ''))
+            if match and match[1] == version:
+                release = saved
+        if release is None:
+            releases = []
+            page = 1
+            while True:
+                batch = request(f'/releases?per_page=100&page={page}')
+                releases.extend(batch)
+                if len(batch) < 100:
+                    break
+                page += 1
+            release = select(releases, version)
         directory, version = prepare(release, cache)
+        # Persist the verified selection before npm can replace the working pair.
+        # The subsequent patch step can finish using cached, reverified bytes even
+        # when the network disappears between the two update-agents invocations.
+        pending = cache / 'selected.pending'
+        pending.write_text(json.dumps(release))
+        pending.replace(selection)
         if args.reviewed_version:
             print(version)
             return
