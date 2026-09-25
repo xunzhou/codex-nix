@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "default_version": "0.156.1",
+  "default_version": "0.157.0",
   "release_repository": "xunzhou/codex-nix",
   "build": {
     "binaries": {
@@ -41,15 +41,15 @@
     }
   },
   "releases": {
-    "0.156.1": {
+    "0.157.0": {
       "profile": "v8-150.4.0",
       "source": {
-        "url": "https://github.com/openai/codex/archive/refs/tags/rust-v0.156.1.tar.gz",
-        "sha256": "cd1e3d063dcf5e029815b7bb178c9017221ddd12bd49b879b14c1f4b09219a02"
+        "url": "https://github.com/openai/codex/archive/refs/tags/rust-v0.157.0.tar.gz",
+        "sha256": "10d6b3d485440b6b92d46e20398a940f756bb12a6a98a1daa1932df05937eab7"
       },
       "patches": [
-        "0.156.1/live-palette-refresh.patch",
-        "0.156.1/double-esc-interrupt.patch"
+        "0.157.0/live-palette-refresh.patch",
+        "0.157.0/double-esc-interrupt.patch"
       ]
     }
   }
