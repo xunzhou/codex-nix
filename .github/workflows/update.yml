@@ -81,10 +81,12 @@ jobs:
           version=$(python3 -c 'import json; print(json.load(open("build.json"))["default_version"])')
           if [[ "$changed" == true ]]; then
             mapfile -t changed_files < <(git diff --name-only)
-            [[ ${#changed_files[@]} -eq 1 && ${changed_files[0]} == build.json ]]
+            for path in "${changed_files[@]}"; do
+              [[ $path == build.json || $path == patches/* ]]
+            done
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git add build.json
+            git add build.json patches
             git diff --cached --check
             git commit -m "codex: update to $version"
           fi

@@ -1,3 +1,40 @@
+## Automated native Linux releases
+
+The **Update native Codex** workflow checks stable upstream releases every four
+hours and on relevant pushes. Native builds are independent of the Nix closure:
+`native-build.json` tracks the native channel and `build.json` tracks Nix.
+Both use the same patch port directories and manifest updater. The native channel
+starts with the tested 0.156.1 port.
+
+When patches apply, the workflow builds both executables and runs the focused TUI
+patch tests before publishing an immutable `native-VERSION-RECIPE_HASH` release.
+If context has moved, the updater reconstructs the old patch stack from its
+checksum-verified source and attempts Git's three-way merge. It publishes no
+conflict resolution guesses. A real conflict, changed V8 dependency, or failing
+test stops the release; the previous download remains available. The failed run's
+summary and artifacts contain the candidate recipe and patches. Review and commit
+a port under `patches/VERSION/`, then rerun. Unchanged successful recipes skip builds;
+failed or missing releases retry at the next scheduled check.
+
+Routine installation (Python 3.12+, Linux x86_64, compatible Ubuntu 24.04 libraries):
+
+```sh
+python3 scripts/install-release.py --install-reviewed
+```
+
+This downloads and verifies the latest **published patched** release before
+installing its exact npm version, then installs the verified binary pair. It never
+falls back to local compilation. `--reviewed-version` prefetches and verifies the
+release, printing just its version for `update-agents`. With no arguments it
+patches the installed npm version using its matching published release. Override
+`CODEX_RELEASE_CACHE` to select the download directory. Recipe and binary archives
+are checked against GitHub asset digests and the release manifest; archive contents,
+recipe identity, binary checksums, version, and patch marker are checked too.
+
+The source installer remains available for deliberate local development. A stable
+upstream release with semantic patch conflicts still needs a reviewed port; CI
+cannot guarantee that arbitrary future code changes preserve patch behavior.
+
 # codex-nix
 
 The local native Codex 0.156.1 port is documented in

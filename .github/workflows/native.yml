@@ -1,0 +1,102 @@
+name: Update native Codex
+run-name: Native Codex (${{ inputs.version || 'latest stable' }})
+on:
+  schedule:
+    - cron: '43 */4 * * *'
+  push:
+    branches: [main]
+    paths: ['native-build.json', 'patches/**', 'scripts/**', 'tests/**', '.github/workflows/native.yml']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Stable upstream version; blank selects latest
+        type: string
+        required: false
+concurrency:
+  group: native-codex
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CODEX_BUILD_MANIFEST: ${{ github.workspace }}/native-build.json
+      CARGO_BUILD_JOBS: 2
+      CODEX_VERIFY_PATCHES: '1'
+      TERM: xterm-256color
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+      - name: Prepare latest stable source and patch stack
+        id: prepare
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: python3 scripts/native-release.py prepare --version "$REQUESTED_VERSION"
+      - name: Validate updater and installer
+        if: steps.prepare.outputs.build == 'true'
+        run: |
+          python3 tests/source-patcher.py
+          python3 tests/manifest.py
+          python3 tests/rebase-patches.py
+          python3 tests/release-client.py
+          git diff --check
+      - name: Install build and test dependencies
+        if: steps.prepare.outputs.build == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libssl-dev libcap-dev libasound2-dev clang cmake
+          sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" bash scripts/reclaim-runner-disk.sh
+          cargo install cargo-nextest --locked --version 0.9.146
+      - name: Build, test patches, and verify binary pair
+        if: steps.prepare.outputs.build == 'true'
+        env:
+          VERSION: ${{ steps.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          unset NO_COLOR TMUX TERM_PROGRAM
+          mkdir -p "$RUNNER_TEMP/codex-home"
+          export CODEX_HOME="$RUNNER_TEMP/codex-home"
+          export CODEX_PATCH_CACHE="$RUNNER_TEMP/native-cache"
+          python3 scripts/install-source-codex.py --build-only --version "$VERSION" --output dist/codex-linux-x86_64.tar.gz
+          mkdir smoke
+          tar -xzf dist/codex-linux-x86_64.tar.gz -C smoke
+          for binary in smoke/codex smoke/codex-code-mode-host; do
+            ldd "$binary" > linkage.txt
+            cat linkage.txt
+            if grep -E 'not found|/nix/store/' linkage.txt; then exit 1; fi
+          done
+      - name: Commit verified recipe
+        if: steps.prepare.outputs.build == 'true'
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add native-build.json patches
+          if ! git diff --cached --quiet; then
+            git commit -m 'codex: advance verified native release'
+            git push origin HEAD:"$GITHUB_REF_NAME"
+          fi
+      - name: Publish immutable native release
+        if: steps.prepare.outputs.build == 'true' && github.ref == 'refs/heads/main'
+        run: python3 scripts/native-release.py publish --assets dist
+      - name: Retain build and diagnostic artifacts
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        with:
+          name: native-release-${{ github.run_id }}
+          path: |
+            dist/*
+            native-build.json
+            patches/
+          retention-days: 14
+      - name: Explain failure
+        if: failure()
+        run: |
+          echo '### Native update blocked' >> "$GITHUB_STEP_SUMMARY"
+          echo 'The last published release remains available. Inspect the first failed step: a three-way patch conflict or changed dependency profile requires a reviewed port; build/test failures must pass before publication. Candidate patches and manifest are retained in artifacts.' >> "$GITHUB_STEP_SUMMARY"
