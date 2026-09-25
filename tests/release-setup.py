@@ -15,9 +15,13 @@ class SetupTests(unittest.TestCase):
             root = Path(tmp)
             old = '#!/bin/sh\nexec /checkout/scripts/install-local-codex.sh "$@"\n'
             (root / 'install-patched-codex').write_text(old)
+            updater = '--reviewed-version @openai/codex@$codex_reviewed_version\nBuilding/installing Codex source patches\n'
+            (root / 'update-agents').write_text(updater)
             m.install(root)
             m.install(root)
             self.assertEqual((root / 'install-patched-codex.before-release-client').read_text(), old)
+            self.assertEqual((root / 'update-agents.before-release-client').read_text(), updater)
+            self.assertIn('Downloading/installing patched Codex', (root / 'update-agents').read_text())
             self.assertEqual((root / '.codex-release-client.py').read_bytes(), (ROOT / 'scripts/install-release.py').read_bytes())
     def test_unrelated_command_is_not_replaced(self):
         with tempfile.TemporaryDirectory() as tmp:

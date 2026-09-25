@@ -32,6 +32,18 @@ def install(directory):
     atomic_write(client, source.read_bytes(), 0o755)
     wrapper = '#!/bin/sh\nexec python3 ' + shlex.quote(str(client)) + ' "$@"\n'
     atomic_write(command, wrapper.encode(), 0o755)
+    updater = directory / 'update-agents'
+    if updater.is_file():
+        current = updater.read_text()
+        if '--reviewed-version' in current and '@openai/codex@$codex_reviewed_version' in current:
+            updated = current.replace('Building/installing Codex source patches', 'Downloading/installing patched Codex')
+            updated = updated.replace('Codex source patches installed', 'Patched Codex release installed')
+            updated = updated.replace('Codex source patches failed', 'Patched Codex installation failed')
+            if updated != current:
+                backup = directory / 'update-agents.before-release-client'
+                if not backup.exists():
+                    atomic_write(backup, updater.read_bytes(), updater.stat().st_mode & 0o777)
+                atomic_write(updater, updated.encode(), updater.stat().st_mode & 0o777)
     print(f'Installed {command}. Run it with --install-reviewed to install the latest published patched release.')
 
 if __name__ == '__main__':
