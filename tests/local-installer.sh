@@ -13,10 +13,12 @@ printf '%s\n' "$*" >"$CALL_LOG"
 exit 43
 SH
 chmod +x "$root/bin/sudo"
-status=0
-PATH="$root/bin:$PATH" CALL_LOG="$root/calls" "$installer" --restore-reviewed >"$root/output" 2>&1 || status=$?
-[[ "$status" == 43 ]]
-grep -Fxq 'npm install -g @openai/codex@0.155.1' "$root/calls"
+for option in --restore-reviewed --install-reviewed; do
+  status=0
+  PATH="$root/bin:$PATH" CALL_LOG="$root/calls" "$installer" "$option" >"$root/output" 2>&1 || status=$?
+  [[ "$status" == 43 ]]
+  grep -Fxq 'npm install -g @openai/codex@0.155.1' "$root/calls"
+done
 printf '%s\n' '{"schema_version":1,"default_version":"0.156.1","releases":{}}' >"$CODEX_BUILD_MANIFEST"
 if "$installer" --reviewed-version >"$root/output" 2>&1; then
   printf 'FAIL: unsupported manifest accepted\n' >&2

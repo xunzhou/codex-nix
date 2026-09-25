@@ -1,3 +1,23 @@
+diff --git a/codex-rs/tui/src/app/owned_transcript_tests.rs b/codex-rs/tui/src/app/owned_transcript_tests.rs
+index 057885c..b4ad24c 100644
+--- a/codex-rs/tui/src/app/owned_transcript_tests.rs
++++ b/codex-rs/tui/src/app/owned_transcript_tests.rs
+@@ -474,6 +474,15 @@ async fn owned_details_escape_interrupts_work_without_starting_backtrack() -> Re
+         TuiEvent::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+     )
+     .await?;
++    let premature_interrupt = std::iter::from_fn(|| events.try_recv().ok())
++        .any(|event| matches!(event, AppEvent::CodexOp(AppCommand::Interrupt)));
++    assert!(!premature_interrupt);
++    app.handle_tui_event(
++        &mut tui,
++        &mut app_server,
++        TuiEvent::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
++    )
++    .await?;
+     let interrupts = std::iter::from_fn(|| events.try_recv().ok())
+         .filter(|event| matches!(event, AppEvent::CodexOp(AppCommand::Interrupt)))
+         .count();
 diff --git a/codex-rs/tui/src/app/snapshots/codex_tui__app__composer_hints__tests__composer_usage_notice.snap b/codex-rs/tui/src/app/snapshots/codex_tui__app__composer_hints__tests__composer_usage_notice.snap
 index 85f93b7..06c6fcd 100644
 --- a/codex-rs/tui/src/app/snapshots/codex_tui__app__composer_hints__tests__composer_usage_notice.snap
@@ -517,6 +537,19 @@ index fff4016..f61b4e8 100644
    └ Making room to continue.
  
  
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__compaction_running_narrow.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__compaction_running_narrow.snap
+index 161bd51..25ebe98 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__compaction_running_narrow.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__compaction_running_narrow.snap
+@@ -2,7 +2,7 @@
+ source: tui/src/chatwidget/tests/compaction_tests.rs
+ expression: "normalize_compaction_snapshot(render_bottom_popup(&chat, 40))"
+ ---
+-• Compacting context (<elapsed> • esc to i…
++• Compacting context (<elapsed> • esc esc …
+   └ Making room to continue.
+ 
+ 
 diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__completed_turn_clears_visible_running_hook.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__completed_turn_clears_visible_running_hook.snap
 index 749ed94..a3a5fb5 100644
 --- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__completed_turn_clears_visible_running_hook.snap
@@ -691,6 +724,28 @@ index 9e65fac..ffb72ec 100644
  "                                                                                "
  "                                                                                "
  "› Ask Codex to do anything                                                      "
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__long_running_hook_below_background_activity_row.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__long_running_hook_below_background_activity_row.snap
+index 7c1ff48..3b9fe5c 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__long_running_hook_below_background_activity_row.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__long_running_hook_below_background_activity_row.snap
+@@ -4,7 +4,7 @@ expression: "format!(\"80 columns:\\n{}\\n120 columns:\\n{}\", hook_status_frame
+ ---
+ 80 columns:
+ "                                                                                "
+-"• Working (0s • esc to interrupt) · 1 background terminal running · /ps to view…"
++"• Working (0s • esc esc to interrupt) · 1 background terminal running · /ps to …"
+ "  └ checking command policy for deployment commands, production credentials, an…"
+ "                                                                                "
+ "                                                                                "
+@@ -13,7 +13,7 @@ expression: "format!(\"80 columns:\\n{}\\n120 columns:\\n{}\", hook_status_frame
+ "  GPT-5.6-Sol default · /tmp/project                                            "
+ 120 columns:
+ "                                                                                                                        "
+-"• Working (0s • esc to interrupt) · 1 background terminal running · /ps to view · /stop to close                        "
++"• Working (0s • esc esc to interrupt) · 1 background terminal running · /ps to view · /stop to close                    "
+ "  └ checking command policy for deployment commands, production credentials, and paths containing 日本語 before continu…" Hidden by multi-width symbols: [(99, " "), (101, " "), (103, " ")]
+ "                                                                                                                        "
+ "                                                                                                                        "
 diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__manual_compaction_pending.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__manual_compaction_pending.snap
 index fff4016..f61b4e8 100644
 --- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__manual_compaction_pending.snap
@@ -704,6 +759,28 @@ index fff4016..f61b4e8 100644
    └ Making room to continue.
  
  
+diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__mixed_running_hooks_share_background_activity_row.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__mixed_running_hooks_share_background_activity_row.snap
+index f8f8b45..250aa48 100644
+--- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__mixed_running_hooks_share_background_activity_row.snap
++++ b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__mixed_running_hooks_share_background_activity_row.snap
+@@ -4,7 +4,7 @@ expression: "format!(\"80 columns:\\n{}\\n120 columns:\\n{}\", hook_status_frame
+ ---
+ 80 columns:
+ "                                                                                "
+-"• Working (0s • esc to interrupt) · 1 background terminal running · /ps to view…"
++"• Working (0s • esc esc to interrupt) · 1 background terminal running · /ps to …"
+ "  └ Running hooks                                                               "
+ "                                                                                "
+ "                                                                                "
+@@ -13,7 +13,7 @@ expression: "format!(\"80 columns:\\n{}\\n120 columns:\\n{}\", hook_status_frame
+ "  GPT-5.6-Sol default · /tmp/project                                            "
+ 120 columns:
+ "                                                                                                                        "
+-"• Working (0s • esc to interrupt) · 1 background terminal running · /ps to view · /stop to close · Running hooks        "
++"• Working (0s • esc esc to interrupt) · 1 background terminal running · /ps to view · /stop to close · Running hooks    "
+ "                                                                                                                        "
+ "                                                                                                                        "
+ "› Ask Codex to do anything                                                                                              "
 diff --git a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__overlapping_hook_live_cell_snapshot.snap b/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__overlapping_hook_live_cell_snapshot.snap
 index 25e7c7a..ac7eaf9 100644
 --- a/codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__overlapping_hook_live_cell_snapshot.snap
@@ -1003,6 +1080,42 @@ index 9632a7a..b14776f 100644
  ---
 -"Reading the terminal output (0s • esc to interrupt)         "
 +"Reading the terminal output (0s • esc esc to interrupt)     "
+diff --git a/codex-rs/tui/src/snapshots/codex_tui__status_indicator_widget__tests__hook_status_reflows_with_background_activity.snap b/codex-rs/tui/src/snapshots/codex_tui__status_indicator_widget__tests__hook_status_reflows_with_background_activity.snap
+index 0528ac1..ccd4524 100644
+--- a/codex-rs/tui/src/snapshots/codex_tui__status_indicator_widget__tests__hook_status_reflows_with_background_activity.snap
++++ b/codex-rs/tui/src/snapshots/codex_tui__status_indicator_widget__tests__hook_status_reflows_with_background_activity.snap
+@@ -2,20 +2,20 @@
+ source: tui/src/status_indicator_widget.rs
+ expression: "frames.join(\"\\n\")"
+ ---
+-124 columns:
+-"Working (0s • esc to interrupt) · 1 background terminal running · /ps to view · /stop to close · checking 日本語 ｶﾞﾊﾟ policy" Hidden by multi-width symbols: [(107, " "), (109, " "), (111, " "), (114, " "), (116, " ")]
+-"  └ existing details                                                                                                        "
++128 columns:
++"Working (0s • esc esc to interrupt) · 1 background terminal running · /ps to view · /stop to close · checking 日本語 ｶﾞﾊﾟ policy" Hidden by multi-width symbols: [(111, " "), (113, " "), (115, " "), (118, " "), (120, " ")]
++"  └ existing details                                                                                                            "
+ 
+-123 columns:
+-"Working (0s • esc to interrupt) · 1 background terminal running · /ps to view · /stop to close                             "
+-"  └ checking 日本語 ｶﾞﾊﾟ policy                                                                                            " Hidden by multi-width symbols: [(14, " "), (16, " "), (18, " "), (21, " "), (23, " ")]
+-"  └ existing details                                                                                                       "
++127 columns:
++"Working (0s • esc esc to interrupt) · 1 background terminal running · /ps to view · /stop to close                             "
++"  └ checking 日本語 ｶﾞﾊﾟ policy                                                                                                " Hidden by multi-width symbols: [(14, " "), (16, " "), (18, " "), (21, " "), (23, " ")]
++"  └ existing details                                                                                                           "
+ 
+ 24 columns:
+-"Working (0s • esc to in…"
++"Working (0s • esc esc t…"
+ "  └ checking 日本語 ｶﾞ… " Hidden by multi-width symbols: [(14, " "), (16, " "), (18, " "), (21, " ")]
+ "  └ existing details    "
+ 
+-124 columns:
+-"Working (0s • esc to interrupt) · 1 background terminal running · /ps to view · /stop to close · checking 日本語 ｶﾞﾊﾟ policy" Hidden by multi-width symbols: [(107, " "), (109, " "), (111, " "), (114, " "), (116, " ")]
+-"  └ existing details                                                                                                        "
++128 columns:
++"Working (0s • esc esc to interrupt) · 1 background terminal running · /ps to view · /stop to close · checking 日本語 ｶﾞﾊﾟ policy" Hidden by multi-width symbols: [(111, " "), (113, " "), (115, " "), (118, " "), (120, " ")]
++"  └ existing details                                                                                                            "
 diff --git a/codex-rs/tui/src/snapshots/codex_tui__status_indicator_widget__tests__hook_status_reflows_without_background_activity.snap b/codex-rs/tui/src/snapshots/codex_tui__status_indicator_widget__tests__hook_status_reflows_without_background_activity.snap
 index d15a97e..93fe5d8 100644
 --- a/codex-rs/tui/src/snapshots/codex_tui__status_indicator_widget__tests__hook_status_reflows_without_background_activity.snap
