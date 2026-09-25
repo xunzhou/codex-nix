@@ -37,10 +37,6 @@ cannot guarantee that arbitrary future code changes preserve patch behavior.
 
 # codex-nix
 
-The local native Codex 0.156.1 port is documented in
-[NATIVE-0.156.1.md](NATIVE-0.156.1.md). It has a separate manifest and launcher;
-the Nix release definition below remains unchanged.
-
 This flake builds the Codex CLI from pinned upstream source and applies a small
 patch that refreshes the terminal palette while Codex is running. It currently
 supports `x86_64-linux`.
