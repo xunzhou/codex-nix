@@ -13,6 +13,46 @@ def git(root, *args):
         'user.email=codex-updater@localhost', '-C', str(root), *args])
 
 
+def double_escape_snapshot(text):
+    """Apply only the known status-hint rendering change, preserving new layout."""
+    result = []
+    old, new = 'esc to interrupt', 'esc esc to interrupt'
+    for line in text.splitlines(keepends=True):
+        content = line.rstrip('\r\n')
+        ending = line[len(content):]
+        start = content.find('esc to ')
+        if content.lstrip().startswith('• ') and start >= 0 and content[max(0, start - 4):start] != 'esc ':
+            tail = content[start:]
+            if tail.endswith('…') and old.startswith(tail[:-1]):
+                content = (content[:start] + new)[:len(content) - 1] + '…'
+            elif tail.startswith(old):
+                padding = len(content) - len(content.rstrip(' '))
+                content = content[:start] + tail.replace(old, new, 1)
+                if padding >= 4:
+                    content = content[:-4]
+        result.append(content + ending)
+    return ''.join(result)
+
+
+def resolve_hint_snapshots(tree):
+    conflicts = git(tree, 'diff', '--name-only', '--diff-filter=U', '-z').decode().split('\0')
+    conflicts = [name for name in conflicts if name]
+    resolutions = {}
+    for name in conflicts:
+        if not name.endswith('.snap'):
+            return False
+        base, upstream, patched = [git(tree, 'show', f':{stage}:{name}').decode() for stage in (1, 2, 3)]
+        if base == patched or double_escape_snapshot(base) != patched:
+            return False
+        resolutions[name] = double_escape_snapshot(upstream)
+    if not resolutions:
+        return False
+    for name, content in resolutions.items():
+        (tree / name).write_text(content)
+        git(tree, 'add', '--', name)
+    return True
+
+
 def rebase(root, source, previous, patches, version):
     with tempfile.TemporaryDirectory(prefix='codex-rebase-') as directory:
         scratch = Path(directory)
@@ -49,7 +89,11 @@ def rebase(root, source, previous, patches, version):
             path = scratch / f'{index}.patch'
             path.write_bytes(patch)
             # Nonzero (including any conflict) aborts before publishing any patch.
-            git(tree, 'apply', '--3way', '--index', str(path))
+            try:
+                git(tree, 'apply', '--3way', '--index', str(path))
+            except subprocess.CalledProcessError:
+                if not resolve_hint_snapshots(tree):
+                    raise
             diff = git(tree, 'diff', '--cached', '--binary', '--full-index')
             if not diff:
                 raise ValueError('patch became empty; review whether upstream superseded it')
