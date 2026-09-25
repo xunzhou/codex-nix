@@ -22,11 +22,10 @@ Requires Python 3.12+, curl, npm, and compatible Linux system libraries.
 The installer verifies the download before installing its matching npm version.
 Routine updates download binaries; they do not compile locally.
 
-With Nix:
+With Nix, import the prebuilt closure, then install it:
 
 ```sh
-nix run github:xunzhou/codex-nix
-# Or install permanently:
+nix run github:xunzhou/codex-nix#install
 nix profile install github:xunzhou/codex-nix
 ```
 
