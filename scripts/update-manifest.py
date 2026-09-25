@@ -18,8 +18,8 @@ def command(*args, **kwargs):
     return subprocess.run(args, check=True, text=True, **kwargs)
 
 
-def update(root, version, native=False):
-    manifest = root / ('native-build.json' if native else 'build.json')
+def update(root, version):
+    manifest = root / 'build.json'
     original = manifest.read_bytes()
     data = json.loads(original)
     current = data['default_version']
@@ -45,7 +45,7 @@ def update(root, version, native=False):
         for name, expected in profile.get('crate_versions', {}).items():
             if {p['version'] for p in packages if p['name'] == name} != {expected}:
                 raise ValueError(f'{name} changed; review the shared native dependency profile first')
-        nar_hash = None if native else command('nix', '--extra-experimental-features', 'nix-command', 'hash', 'path', str(source), capture_output=True).stdout.strip()
+        nar_hash = command('nix', '--extra-experimental-features', 'nix-command', 'hash', 'path', str(source), capture_output=True).stdout.strip()
         # A reviewed port takes precedence over the previous version's patch stack.
         port = root / 'patches' / version
         if port.is_dir():
@@ -73,12 +73,6 @@ def update(root, version, native=False):
         with archive.open('rb') as stream:
             sha256 = hashlib.file_digest(stream, 'sha256').hexdigest()
         recipe['source'] = {'url': url, 'sha256': sha256}
-        if native:
-            recipe.pop('cargo_hash', None)
-            data['releases'] = {version: recipe}
-            data['default_version'] = version
-            manifest.write_text(json.dumps(data, indent=2) + '\n')
-            return
         recipe['source']['nar_hash'] = nar_hash
         recipe['cargo_hash'] = 'sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='
         data['releases'] = {version: recipe}
@@ -100,8 +94,7 @@ def update(root, version, native=False):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('version')
-    parser.add_argument('--native', action='store_true')
     args = parser.parse_args()
     if not re.fullmatch(r'\d+\.\d+\.\d+', args.version):
         parser.error('expected stable semantic version')
-    update(Path(__file__).resolve().parent.parent, args.version, args.native)
+    update(Path(__file__).resolve().parent.parent, args.version)

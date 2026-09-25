@@ -116,8 +116,9 @@ for name in ('codex','codex-code-mode-host'):
             self.assertNotEqual(result.returncode, 0)
         return result
 
-    def test_ci_bundle_download_installs_without_cargo(self):
-        self.check_bundle_download(unified=False)
+    def test_download_mode_without_release_fails_before_cargo(self):
+        result = self.check_bundle_download(unified=False)
+        self.assertIn('no matching native release', result.stderr)
 
     def test_combined_release_download_installs_without_cargo(self):
         self.check_bundle_download(unified=True)
@@ -136,8 +137,6 @@ import json,os,shutil,sys,tarfile
 url=sys.argv[-1]
 output=sys.argv[sys.argv.index('--output')+1]
 if os.environ['UNIFIED'] == '1':
-    if '/releases/download/native-' in url:
-        print('404',end='');sys.exit(0)
     with tarfile.open(os.environ['PUBLISHED_BUNDLE']) as bundle:
         key=json.load(bundle.extractfile('bundle.json'))['key']
     name='codex-native-'+key+'-linux-x86_64.tar.gz'
@@ -148,15 +147,22 @@ if os.environ['UNIFIED'] == '1':
         print('200',end='');sys.exit(0)
     assert url.endswith('/releases/download/'+tag+'/'+name)
 else:
-    assert '/releases/download/native-0.154.0-' in url
+    assert '/releases?per_page=100&page=1' in url
+    with open(output,'w') as stream:
+        json.dump([],stream)
+    print('200',end='');sys.exit(0)
 shutil.copyfile(os.environ['PUBLISHED_BUNDLE'],output)
 print('200',end='')
 ''')
         curl.chmod(0o755)
-        self.invoke(CODEX_INSTALL_MODE='download', PUBLISHED_BUNDLE=str(archive), UNIFIED='1' if unified else '0',
-                    PATH=str(commands)+os.pathsep+os.environ['PATH'], FAIL_BUILD='1')
+        result = self.invoke(success=unified, CODEX_INSTALL_MODE='download', PUBLISHED_BUNDLE=str(archive), UNIFIED='1' if unified else '0',
+                             PATH=str(commands)+os.pathsep+os.environ['PATH'], FAIL_BUILD='1')
         self.assertEqual((self.root / 'count').read_text(), '1')
-        self.assertIn('palette-marker', (self.vendor / 'codex').read_text())
+        if unified:
+            self.assertIn('palette-marker', (self.vendor / 'codex').read_text())
+        else:
+            self.assertEqual((self.vendor / 'codex').read_text(), 'stock codex')
+        return result
 
     def test_unexpected_archive_bytes_fail_before_cargo(self):
         self.archive.write_bytes(b'not the pinned source')
@@ -168,7 +174,14 @@ print('200',end='')
         archive = self.root / 'published.tar.gz'
         self.invoke(args=('--build-only', '--version', '0.154.0', '--output', str(archive)))
         spec = PATCHER.load_recipe(self.root / 'build.json', '0.154.0')
-        with mock.patch.object(PATCHER, 'http_download', side_effect=lambda url, out: (shutil.copyfile(archive, out), True)[1]):
+        tag = 'bundle-codex-v0.154.0-' + 'a'*16 + '-' + 'b'*16
+        def download(url, out):
+            if '/releases?' in url:
+                out.write_text(json.dumps([{'tag_name': tag, 'assets': [{'name': 'codex-native-wrong-recipe-linux-x86_64.tar.gz'}]}]))
+            else:
+                shutil.copyfile(archive, out)
+            return True
+        with mock.patch.object(PATCHER, 'http_download', side_effect=download):
             with self.assertRaisesRegex(ValueError, 'does not match'):
                 PATCHER.download_bundle(spec, 'wrong-recipe', self.root / 'cache', self.root / 'destination', '0.154.0', ['codex', 'codex-code-mode-host'])
         self.assertFalse((self.root / 'destination').exists())

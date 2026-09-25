@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-export CODEX_BUILD_MANIFEST="${CODEX_BUILD_MANIFEST:-$root/native-build.json}"
+export CODEX_BUILD_MANIFEST="${CODEX_BUILD_MANIFEST:-$root/build.json}"
 export CODEX_PATCH_ROOT="${CODEX_PATCH_ROOT:-$root/patches}"
 export CODEX_PATCH_CACHE="${CODEX_PATCH_CACHE:-$root/.native-cache}"
 case "${1:-}" in

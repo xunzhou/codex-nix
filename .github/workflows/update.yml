@@ -132,6 +132,9 @@ jobs:
           python3 tests/source-patcher.py
           python3 tests/manifest.py
           python3 tests/release.py
+          python3 tests/rebase-patches.py
+          python3 tests/release-client.py
+          python3 tests/release-setup.py
           bash tests/package-policy.sh
           bash tests/update.sh
           bash tests/bundle.sh
@@ -152,13 +155,14 @@ jobs:
           retention-days: 14
 
   native:
-    name: Build native Linux binaries
+    name: Build static native Linux binaries
     needs: prepare
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
       CARGO_BUILD_JOBS: 2
+      TERM: xterm-256color
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -175,17 +179,31 @@ jobs:
           git fetch "$RUNNER_TEMP/release-source/source.bundle" HEAD
           test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
           git checkout --detach "$EXPECTED_SHA"
-      - name: Install native dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libssl-dev libcap-dev libasound2-dev clang cmake
       - name: Reclaim runner disk space
         run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" bash scripts/reclaim-runner-disk.sh
-      - name: Build and verify native bundle
+      # Same Zig as upstream's musl release builds.
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.14.0
+          use-cache: false
+      - name: Install musl toolchain from the pinned upstream source
+        run: bash scripts/setup-musl-toolchain.sh
+      - name: Install nextest
+        run: |
+          curl -fL --retry 3 -o "$RUNNER_TEMP/nextest.tar.gz" https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.146/cargo-nextest-0.9.146-x86_64-unknown-linux-gnu.tar.gz
+          echo '682c21b777c333e96fd532e114d3a5a894e0729ab88d94c0a9f20f8419695428  '"$RUNNER_TEMP/nextest.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/nextest"
+          tar -xzf "$RUNNER_TEMP/nextest.tar.gz" -C "$RUNNER_TEMP/nextest" cargo-nextest
+          echo "$RUNNER_TEMP/nextest" >> "$GITHUB_PATH"
+      - name: Build, test patches, and verify static binary pair
         env:
           CODEX_PATCH_CACHE: ${{ runner.temp }}/native-cache
+          CODEX_VERIFY_PATCHES: '1'
         run: |
           set -euo pipefail
+          unset NO_COLOR TMUX TERM_PROGRAM
+          mkdir -p "$RUNNER_TEMP/codex-home"
+          export CODEX_HOME="$RUNNER_TEMP/codex-home"
           python3 scripts/install-source-codex.py --build-only --version "$VERSION" --output dist/native.tar.gz
           mkdir smoke
           tar -xzf dist/native.tar.gz -C smoke
@@ -197,9 +215,12 @@ jobs:
                   assert hashlib.file_digest(stream, 'sha256').hexdigest() == checksum
           PYTHON
           for binary in smoke/codex smoke/codex-code-mode-host; do
-            ldd "$binary" > linkage.txt
-            cat linkage.txt
-            if grep -E 'not found|/nix/store/' linkage.txt; then exit 1; fi
+            file "$binary"
+            # Static: no program interpreter and no shared library dependencies.
+            if readelf -lW "$binary" | grep -q INTERP || readelf -dW "$binary" | grep -q NEEDED; then
+              echo "$binary is dynamically linked" >&2
+              exit 1
+            fi
           done
           test "$(smoke/codex --version)" = "codex-cli $VERSION"
           smoke/codex-code-mode-host --help >/dev/null
@@ -270,3 +291,26 @@ jobs:
     uses: ./.github/workflows/install-smoke.yml
     with:
       ref: ${{ needs.prepare.outputs.sha }}
+
+  native-download-smoke:
+    name: Verify public native download on a bare runner
+    needs: [prepare, publish]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      # No runtime libraries are installed: the static release must run as-is.
+      - name: Download, verify, and smoke-test the published release
+        run: |
+          python3 - <<'PYTHON'
+          import importlib.util, os
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location('client', 'scripts/install-release.py')
+          client = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(client)
+          releases = client.request('/releases?per_page=100')
+          version = __import__('json').load(open('build.json'))['default_version']
+          client.prepare(client.select(releases, version), Path(os.environ['RUNNER_TEMP']) / 'public-download')
+          PYTHON

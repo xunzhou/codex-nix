@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import gzip
 import http.client
+import io
 import time
 import importlib.util
 import json
@@ -40,6 +41,28 @@ def native_identity(path, expected):
         for name, checksum in inventory.items():
             require(hashlib.file_digest(archive.extractfile(name), 'sha256').hexdigest() == checksum,
                     'native checksum mismatch')
+
+
+def write_recipe(path, files):
+    """Pack the exact installer inputs; canonical metadata keeps rebuilds identical."""
+    with path.open('wb') as output:
+        with gzip.GzipFile(filename='', fileobj=output, mode='wb', mtime=0) as compressed:
+            with tarfile.open(fileobj=compressed, mode='w') as archive:
+                for name, source in sorted(files.items()):
+                    content = source.read_bytes()
+                    info = tarfile.TarInfo(name)
+                    info.size = len(content)
+                    info.mode = 0o644
+                    archive.addfile(info, io.BytesIO(content))
+
+
+def recipe_identity(path, files):
+    with tarfile.open(path) as archive:
+        members = archive.getmembers()
+        require(len(members) == len(files) and {m.name for m in members} == set(files)
+                and all(m.isfile() for m in members), 'invalid recipe inventory')
+        for name, source in files.items():
+            require(archive.extractfile(name).read() == source.read_bytes(), 'recipe content mismatch')
 
 
 def nix_identity(directory, manifest_name):
@@ -120,7 +143,7 @@ class GitHub:
                 and asset['digest'] == 'sha256:' + sha256(path), 'uploaded asset digest mismatch')
 
 
-def publish(api, assets, tag, revision, expected_native, expected_output):
+def publish(api, assets, tag, revision, expected_native, expected_output, recipe_files):
     require(re.fullmatch(r'codex-v[0-9]+\.[0-9]+\.[0-9]+-[a-f0-9]{16}-[0-9a-z]{16}', tag), 'invalid release tag')
     require(re.fullmatch(r'[a-f0-9]{40}', revision), 'invalid source revision')
     manifest_name = f'codex-{tag}-manifest.json'
@@ -130,22 +153,25 @@ def publish(api, assets, tag, revision, expected_native, expected_output):
     require(sha256(assets / local['archive']) == inventory[local['archive']], 'local Nix archive digest mismatch')
     native_name = f'codex-native-{expected_native["key"]}-linux-x86_64.tar.gz'
     native_identity(assets / native_name, expected_native)
+    recipe_name = f'codex-recipe-{expected_native["key"]}.tar.gz'
+    write_recipe(assets / recipe_name, recipe_files)
     nix_names = {manifest_name, local['archive'], f'codex-{tag}-SHA256SUMS'}
-    names = nix_names | {native_name}
+    names = nix_names | {native_name, recipe_name}
     release_tag = f'bundle-{tag}'
     release = api.request(f'/releases/tags/{release_tag}')
     if release is None:
         release = api.request('/releases', {'tag_name': release_tag, 'target_commitish': revision,
                               'name': f'Codex {local["codex_version"]} — Nix and Linux',
-                              'body': 'Verified Nix closure and Ubuntu 24.04 x86_64 GNU/Linux binaries. '
-                                      'Native binaries require compatible glibc and system libraries. '
+                              'body': 'Verified Nix closure and static x86_64 Linux (musl) binaries built from '
+                                      'the same patched source. The native archive runs on any x86_64 Linux '
+                                      'without system libraries; the recipe archive lets installers re-verify it. '
                                       'Assets are recipe-specific and never overwritten.',
                               'draft': True, 'make_latest': 'false'})
     require(release['tag_name'] == release_tag, 'release tag mismatch')
     remote = {asset['name']: asset for asset in release['assets']}
     require(len(remote) == len(release['assets']), 'duplicate release asset')
     for name, asset in remote.items():
-        require(name in nix_names or re.fullmatch(r'codex-native-[0-9]+\.[0-9]+\.[0-9]+-[a-f0-9]{64}-linux-x86_64\.tar\.gz', name),
+        require(name in nix_names or re.fullmatch(r'codex-(native-[0-9]+\.[0-9]+\.[0-9]+-[a-f0-9]{64}-linux-x86_64|recipe-[0-9]+\.[0-9]+\.[0-9]+-[a-f0-9]{64})\.tar\.gz', name),
                 'unexpected release asset')
         require(asset['state'] == 'uploaded' and re.fullmatch(r'sha256:[a-f0-9]{64}', asset['digest']),
                 'invalid release asset digest')
@@ -170,6 +196,9 @@ def publish(api, assets, tag, revision, expected_native, expected_output):
         if native_name in remote:
             api.download(remote[native_name], scratch / native_name)
             native_identity(scratch / native_name, expected_native)
+        if recipe_name in remote:
+            api.download(remote[recipe_name], scratch / recipe_name)
+            recipe_identity(scratch / recipe_name, recipe_files)
     for name in sorted(names - remote.keys()):
         api.upload(release['id'], assets / name)
     final = api.request(f'/releases/{release["id"]}')
@@ -181,7 +210,7 @@ def publish(api, assets, tag, revision, expected_native, expected_output):
         require(asset['state'] == 'uploaded' and asset['digest'] == expected_digest, 'final release digest mismatch')
     if final['draft']:
         api.request(f'/releases/{release["id"]}', {'draft': False, 'make_latest': 'false'}, method='PATCH')
-    print(f'Published or verified {release_tag}: Nix and native Linux')
+    print(f'Published or verified {release_tag}: Nix and static native Linux')
 
 
 def main():
@@ -200,8 +229,11 @@ def main():
     recipe = native.load_recipe(root / 'build.json', version)
     key = native.recipe_key(recipe, [root / 'patches' / p for p in recipe['patches']], version)
     expected = {'key': key, 'version': version}
+    recipe_files = {'build.json': root / 'build.json',
+                    'scripts/install-source-codex.py': root / 'scripts/install-source-codex.py',
+                    **{'patches/' + p: root / 'patches' / p for p in recipe['patches']}}
     api = GitHub(manifest['release_repository'], os.environ['GH_TOKEN'])
-    publish(api, args.assets, args.tag, args.revision, expected, args.output_path)
+    publish(api, args.assets, args.tag, args.revision, expected, args.output_path, recipe_files)
 
 
 if __name__ == '__main__':

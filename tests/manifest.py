@@ -48,19 +48,6 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual(len(result['releases']['0.2.0']['source']['sha256']), 64)
         self.assertTrue(any(call.args[:3] == ('nix','build','--no-link') for call in commands.call_args_list))
 
-    def test_native_update_uses_reviewed_port_without_nix(self):
-        (self.root / 'native-build.json').write_text(json.dumps(self.data))
-        port = self.root / 'patches/0.2.0'
-        port.mkdir()
-        (port / 'example.patch').write_text('reviewed fixture')
-        with mock.patch.object(UPDATER, 'command', side_effect=self.command) as commands:
-            UPDATER.update(self.root, '0.2.0', native=True)
-        result = json.loads((self.root / 'native-build.json').read_text())
-        self.assertEqual(result['releases']['0.2.0']['patches'], ['0.2.0/example.patch'])
-        self.assertNotIn('nar_hash', result['releases']['0.2.0']['source'])
-        self.assertFalse(any(call.args[0] == 'nix' for call in commands.call_args_list))
-        self.assertEqual(json.loads(self.manifest.read_text()), self.data)
-
     def test_dependency_change_requires_review_without_editing_manifest(self):
         before = self.manifest.read_bytes()
         (self.source / 'Cargo.lock').write_text('[[package]]\nname="v8"\nversion="2.0.0"\n')

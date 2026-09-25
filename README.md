@@ -9,8 +9,9 @@ Codex with two small changes:
 ## Download or install
 
 Find built binaries on the [releases page](https://github.com/xunzhou/codex-nix/releases).
-For Linux x86_64, choose a **native** release and download `codex-linux-x86_64.tar.gz`.
-It includes `codex` and `codex-code-mode-host`, built on Ubuntu 24.04.
+Each release holds both the Nix closure and native Linux x86_64 binaries.
+Download `codex-native-<version>-<key>-linux-x86_64.tar.gz`: it includes static
+(musl) `codex` and `codex-code-mode-host` that run on any x86_64 Linux.
 
 To update an npm installation, run from this checkout:
 
@@ -18,7 +19,7 @@ To update an npm installation, run from this checkout:
 python3 scripts/install-release.py --install-reviewed
 ```
 
-Requires Python 3.12+, curl, npm, and compatible Linux system libraries.
+Requires Python 3.12+, curl, and npm.
 The installer verifies the download before installing its matching npm version.
 Routine updates download binaries; they do not compile locally.
 
@@ -37,9 +38,9 @@ kill -USR1 "$(pgrep -n codex)"
 
 ## Automatic updates
 
-[GitHub Actions](https://github.com/xunzhou/codex-nix/actions/workflows/native.yml)
-checks upstream once a day, builds the patched binaries, tests them, and
-publishes a release. Native releases run independently of Nix builds.
+[GitHub Actions](https://github.com/xunzhou/codex-nix/actions/workflows/update.yml)
+checks upstream once a day, builds the Nix closure and static native binaries
+from the same patched source, tests them, and publishes one release with both.
 
 Simple patch drift is rebased automatically. Conflicts or failing tests stop the
 update and leave the last working release available. Check the failed run's

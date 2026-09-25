@@ -15,8 +15,12 @@ spec = importlib.util.spec_from_file_location('client', ROOT / 'scripts/install-
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 
-def release(version, published='2026-09-24', **kwargs):
-    return dict(tag_name='native-' + version + '-' + 'a'*64, published_at=published, draft=False, prerelease=False, **kwargs)
+def release(version, published='2026-09-24', key=None, **kwargs):
+    key = key or version + '-' + 'a'*64
+    assets = [dict(name=f'codex-native-{key}-linux-x86_64.tar.gz', created_at=published),
+              dict(name=f'codex-recipe-{key}.tar.gz', created_at=published)]
+    return dict(tag_name='bundle-codex-v' + version + '-' + 'b'*16 + '-' + 'c'*16, published_at=published,
+                draft=False, prerelease=False, assets=assets, **kwargs)
 
 class ClientTests(unittest.TestCase):
     def test_numeric_version_order_not_publication_order(self):
@@ -29,6 +33,15 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(m.select([release('0.9.0'), release('0.10.0')], '0.9.0')['tag_name'], release('0.9.0')['tag_name'])
         with self.assertRaises(ValueError):
             m.select([release('0.10.0')], '0.9.0')
+    def test_release_without_native_recipe_pair_is_skipped(self):
+        nix_only = release('0.11.0'); nix_only['assets'] = nix_only['assets'][:1]
+        self.assertEqual(m.select([nix_only, release('0.10.0')])['tag_name'], release('0.10.0')['tag_name'])
+        legacy = dict(release('0.12.0'), tag_name='native-0.12.0-' + 'a'*64)
+        self.assertEqual(m.select([legacy, release('0.10.0')])['tag_name'], release('0.10.0')['tag_name'])
+    def test_newest_recipe_in_release_wins(self):
+        combined = release('0.10.0')
+        combined['assets'] += release('0.10.0', '2026-09-25', key='0.10.0-' + 'e'*64)['assets']
+        self.assertEqual(m.native_key(combined), '0.10.0-' + 'e'*64)
     def test_install_reuses_prefetched_release_without_network(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -53,7 +66,7 @@ class ClientTests(unittest.TestCase):
             (recipe / 'patches').mkdir()
             shutil.copyfile(ROOT / 'scripts/install-source-codex.py', recipe / 'scripts/install-source-codex.py')
             (recipe / 'patches/test.patch').write_text('test patch')
-            data = json.loads((ROOT / 'native-build.json').read_text())
+            data = json.loads((ROOT / 'build.json').read_text())
             version = data['default_version']
             data['releases'][version]['patches'] = ['test.patch']
             (recipe / 'build.json').write_text(json.dumps(data))
@@ -67,21 +80,23 @@ class ClientTests(unittest.TestCase):
                 (binary / name).chmod(0o755)
             (binary / 'bundle.json').write_text(json.dumps({'version': version, 'key': key}))
             (binary / 'sha256.json').write_text(json.dumps({name: m.digest(binary / name) for name in spec['binaries']}))
-            for archive_name, directory, names in [('recipe.tar.gz', recipe, ['build.json', 'scripts/install-source-codex.py', 'patches/test.patch']),
-                                                  ('codex-linux-x86_64.tar.gz', binary, [*spec['binaries'], 'bundle.json', 'sha256.json'])]:
+            recipe_name, native_name = f'codex-recipe-{key}.tar.gz', f'codex-native-{key}-linux-x86_64.tar.gz'
+            for archive_name, directory, names in [(recipe_name, recipe, ['build.json', 'scripts/install-source-codex.py', 'patches/test.patch']),
+                                                  (native_name, binary, [*spec['binaries'], 'bundle.json', 'sha256.json'])]:
                 with tarfile.open(root / archive_name, 'w:gz') as tar:
                     for name in names:
                         tar.add(directory / name, arcname=name)
-            metadata = {'schema': 1, 'version': version, 'key': key, 'sha256': {name: m.digest(root / name) for name in ['recipe.tar.gz', 'codex-linux-x86_64.tar.gz']}}
-            (root / 'release.json').write_text(json.dumps(metadata))
-            remote = release(version); remote['tag_name'] = 'native-' + key
+            remote = release(version, key=key)
             def download(remote, name, destination):
                 shutil.copyfile(root / name, destination)
             with patch.object(m, 'download', side_effect=download):
                 _, selected = m.prepare(remote, root / 'cache')
                 self.assertEqual(selected, version)
-                (root / 'codex-linux-x86_64.tar.gz').write_bytes(b'corrupted')
-                with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
+                (recipe / 'patches/test.patch').write_text('tampered patch')
+                with tarfile.open(root / recipe_name, 'w:gz') as tar:
+                    for name in ['build.json', 'scripts/install-source-codex.py', 'patches/test.patch']:
+                        tar.add(recipe / name, arcname=name)
+                with self.assertRaisesRegex(ValueError, 'recipe key mismatch'):
                     m.prepare(remote, root / 'cache')
 
     def test_symlinks_duplicates_and_traversal_rejected(self):

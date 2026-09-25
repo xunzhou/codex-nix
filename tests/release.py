@@ -70,6 +70,13 @@ class ReleaseTests(unittest.TestCase):
         self.write_manifest()
         self.native_name = f'codex-native-{EXPECTED["key"]}-linux-x86_64.tar.gz'
         self.write_native(EXPECTED)
+        self.recipe_name = f'codex-recipe-{EXPECTED["key"]}.tar.gz'
+        recipe_temp = tempfile.TemporaryDirectory()
+        self.addCleanup(recipe_temp.cleanup)
+        recipe = Path(recipe_temp.name)
+        (recipe / 'build.json').write_text('{}')
+        (recipe / 'fix.patch').write_text('patch')
+        self.recipe_files = {'build.json': recipe / 'build.json', 'patches/fix.patch': recipe / 'fix.patch'}
 
     def write_manifest(self):
         (self.assets / self.manifest_name).write_text(json.dumps(self.manifest))
@@ -88,7 +95,7 @@ class ReleaseTests(unittest.TestCase):
                 archive.addfile(info, io.BytesIO(data))
 
     def publish(self):
-        publisher.publish(self.api, self.assets, TAG, 'e' * 40, EXPECTED, OUTPUT)
+        publisher.publish(self.api, self.assets, TAG, 'e' * 40, EXPECTED, OUTPUT, self.recipe_files)
 
     def test_draft_published_only_with_both_backends(self):
         (self.assets / 'source.zip').write_bytes(b'not a release asset')
@@ -97,7 +104,8 @@ class ReleaseTests(unittest.TestCase):
         self.assertTrue(create['draft'])
         self.assertEqual(create['tag_name'], 'bundle-' + TAG)
         self.assertFalse(self.api.release['draft'])
-        self.assertEqual(len(self.api.release['assets']), 4)
+        self.assertEqual(len(self.api.release['assets']), 5)
+        self.assertIn(self.recipe_name, self.api.files)
         self.assertEqual(self.api.calls[-1][2], 'PATCH')
 
     def test_rerun_verifies_without_overwriting(self):
@@ -166,6 +174,18 @@ class ReleaseTests(unittest.TestCase):
         self.manifest['output_path'] = 'wrong'
         self.write_manifest()
         with self.assertRaisesRegex(ValueError, 'Nix source identity mismatch'):
+            self.publish()
+
+    def test_recipe_archive_is_deterministic(self):
+        first, second = self.assets / 'first.tar.gz', self.assets / 'second.tar.gz'
+        publisher.write_recipe(first, self.recipe_files)
+        publisher.write_recipe(second, self.recipe_files)
+        self.assertEqual(first.read_bytes(), second.read_bytes())
+
+    def test_changed_remote_recipe_is_rejected(self):
+        self.publish()
+        self.recipe_files['patches/fix.patch'].write_text('other patch')
+        with self.assertRaisesRegex(ValueError, 'recipe content mismatch'):
             self.publish()
 
     def test_unexpected_remote_asset_is_rejected(self):

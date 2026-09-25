@@ -146,19 +146,16 @@ def unified_bundle_url(spec, key, scratch):
 
 
 def download_bundle(spec, key, cache, bundle, version, binaries):
-    url = f'https://github.com/{spec["release_repository"]}/releases/download/native-{key}/codex-linux-x86_64.tar.gz'
     if platform.machine() != "x86_64":
         return False
     with tempfile.TemporaryDirectory(prefix="release-", dir=cache) as temporary:
         scratch = Path(temporary)
         archive = scratch / "bundle.tar.gz"
-        downloaded = http_download(url, archive)
-        if not downloaded:
-            unified_url = unified_bundle_url(spec, key, scratch)
-            if unified_url:
-                downloaded = http_download(unified_url, archive)
-                if not downloaded:
-                    raise ValueError("listed native release asset is missing")
+        downloaded = False
+        if url := unified_bundle_url(spec, key, scratch):
+            downloaded = http_download(url, archive)
+            if not downloaded:
+                raise ValueError("listed native release asset is missing")
         if not downloaded:
             if os.environ.get("CODEX_INSTALL_MODE") == "download":
                 raise ValueError("no matching native release; rerun with --source to build locally")
@@ -266,9 +263,10 @@ def elf_target(binary):
 def sync_package_target(vendor, privilege):
     """Point the npm package manifest at the installed binary's real target.
 
-    Patched builds are glibc executables placed in npm's musl package. Since
-    0.157 the app-server daemon refuses to start unless codex-package.json
-    names the running executable's target.
+    Released bundles are static musl builds matching npm's musl package, but
+    local source builds target the host (glibc). Since 0.157 the app-server
+    daemon refuses to start unless codex-package.json names the running
+    executable's target, so this also restores musl after a glibc install.
     """
     manifest = vendor.parent / "codex-package.json"
     target = elf_target(vendor / "codex")
@@ -365,7 +363,12 @@ def main():
                 env = dict(os.environ, CARGO_TARGET_DIR=str(target), GIT_CONFIG_GLOBAL="/dev/null", CARGO_NET_GIT_FETCH_WITH_CLI="true")
                 prepare_build_assets(spec, cache, env)
                 cargo = os.environ.get("CODEX_CARGO_COMMAND", "cargo")
-                print(f"Building Codex {version} with {len(patches)} patches", flush=True)
+                # Cross targets (the static musl release) are opt-in; the toolchain comes from the caller.
+                triple = env.get("CARGO_BUILD_TARGET")
+                if triple and shutil.which("rustup"):
+                    run("rustup", "target", "add", triple, cwd=source / "codex-rs", env=env)
+                output_dir = target / triple / "release" if triple else target / "release"
+                print(f"Building Codex {version} with {len(patches)} patches for {triple or 'the host'}", flush=True)
                 run(cargo, "metadata", "--locked", "--no-deps", "--format-version", "1", cwd=source / "codex-rs", env=env, stdout=subprocess.DEVNULL)
                 run(cargo, "build", "--release", "--locked", *[flag for name in binaries for flag in ("-p", spec["binaries"][name]["package"])], cwd=source / "codex-rs", env=env)
                 if os.environ.get("CODEX_VERIFY_PATCHES") == "1":
@@ -376,8 +379,10 @@ def main():
                 with tempfile.TemporaryDirectory(prefix="bundle-", dir=cache) as pending:
                     pending = Path(pending)
                     for name in binaries:
-                        shutil.copy2(target / "release" / name, pending / name)
+                        shutil.copy2(output_dir / name, pending / name)
                         run(os.environ.get("CODEX_STRIP_COMMAND", "strip"), "--strip-debug", str(pending / name))
+                        if triple and elf_target(pending / name) != triple:
+                            raise ValueError(f"built {name} is not a {triple} executable")
                     (pending / "sha256.json").write_text(json.dumps({name: digest(pending / name) for name in binaries}))
                     (pending / "bundle.json").write_text(json.dumps({"key": key, "version": version}))
                     if not valid_bundle(pending, version, spec["markers"], binaries):

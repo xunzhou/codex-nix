@@ -18,16 +18,28 @@ from urllib.request import urlopen, Request
 
 REPOSITORY = 'xunzhou/codex-nix'
 API = f'https://api.github.com/repos/{REPOSITORY}'
-TAG = re.compile(r'native-(\d+\.\d+\.\d+)-[a-f0-9]{64}')
+TAG = re.compile(r'bundle-codex-v(\d+\.\d+\.\d+)-[a-f0-9]{16}-[0-9a-z]{16}')
+NATIVE = re.compile(r'codex-native-(\d+\.\d+\.\d+-[a-f0-9]{64})-linux-x86_64\.tar\.gz')
 
 def request(path):
     with urlopen(Request(API + path, headers={'Accept': 'application/vnd.github+json'}), timeout=60) as response:
         return json.load(response)
 
 
+def native_key(release):
+    """Newest recipe key with both a native archive and its recipe in this release."""
+    names = {a['name']: a for a in release.get('assets', [])}
+    version = TAG.fullmatch(release['tag_name'])[1]
+    keys = [(names[name].get('created_at', ''), match[1]) for name in names
+            if (match := NATIVE.fullmatch(name)) and match[1].startswith(version + '-')
+            and f'codex-recipe-{match[1]}.tar.gz' in names]
+    return max(keys)[1] if keys else None
+
+
 def select(releases, version=None):
     candidates = [r for r in releases if not r.get('draft') and not r.get('prerelease')
-                  and TAG.fullmatch(r['tag_name']) and (version is None or TAG.fullmatch(r['tag_name'])[1] == version)]
+                  and TAG.fullmatch(r['tag_name']) and (version is None or TAG.fullmatch(r['tag_name'])[1] == version)
+                  and native_key(r)]
     if not candidates:
         raise ValueError('no published patched release is available for the requested version')
     return max(candidates, key=lambda r: (tuple(map(int, TAG.fullmatch(r['tag_name'])[1].split('.'))), r['published_at']))
@@ -67,33 +79,30 @@ def prepare(release, cache):
     tag = release['tag_name']
     if not TAG.fullmatch(tag):
         raise ValueError('invalid release tag')
-    directory = cache / tag
-    directory.mkdir(parents=True, exist_ok=True)
-    for name in ['release.json', 'recipe.tar.gz', 'codex-linux-x86_64.tar.gz']:
-        download(release, name, directory / name)
-    metadata = json.loads((directory / 'release.json').read_text())
+    key = native_key(release)
+    if key is None:
+        raise ValueError('release has no native archive with its recipe')
     version = TAG.fullmatch(tag)[1]
-    if metadata['schema'] != 1 or metadata['version'] != version or metadata['key'] != tag[7:]:
-        raise ValueError('release identity mismatch')
-    if set(metadata['sha256']) != {'recipe.tar.gz', 'codex-linux-x86_64.tar.gz'} or any(
-        digest(directory / name) != checksum for name, checksum in metadata['sha256'].items()):
-        raise ValueError('release manifest checksum mismatch')
-    with tarfile.open(directory / 'recipe.tar.gz') as archive:
+    directory = cache / key
+    directory.mkdir(parents=True, exist_ok=True)
+    recipe_name, native_name = f'codex-recipe-{key}.tar.gz', f'codex-native-{key}-linux-x86_64.tar.gz'
+    for name in [recipe_name, native_name]:
+        download(release, name, directory / name)
+    with tarfile.open(directory / recipe_name) as archive:
         data = json.load(archive.extractfile('build.json'))
     patches = data['releases'][version]['patches']
     if any(Path(p).is_absolute() or '..' in Path(p).parts for p in patches):
         raise ValueError('invalid patch path')
-    extract(directory / 'recipe.tar.gz', directory, ['build.json', 'scripts/install-source-codex.py', *['patches/' + p for p in patches]])
+    extract(directory / recipe_name, directory, ['build.json', 'scripts/install-source-codex.py', *['patches/' + p for p in patches]])
     module_spec = importlib.util.spec_from_file_location('released_installer', directory / 'scripts/install-source-codex.py')
     native = importlib.util.module_from_spec(module_spec)
     module_spec.loader.exec_module(native)
     spec = native.load_recipe(directory / 'build.json', version)
-    key = native.recipe_key(spec, [directory / 'patches' / p for p in spec['patches']], version)
-    if key != metadata['key']:
+    if native.recipe_key(spec, [directory / 'patches' / p for p in spec['patches']], version) != key:
         raise ValueError('release recipe key mismatch')
     bundle = directory / key
     bundle.mkdir(exist_ok=True)
-    extract(directory / 'codex-linux-x86_64.tar.gz', bundle, [*spec['binaries'], 'bundle.json', 'sha256.json'])
+    extract(directory / native_name, bundle, [*spec['binaries'], 'bundle.json', 'sha256.json'])
     if json.loads((bundle / 'bundle.json').read_text()) != {'key': key, 'version': version} or not native.valid_bundle(bundle, version, spec['markers'], spec['binaries']):
         raise ValueError('native bundle verification failed')
     native.smoke_bundle(bundle, spec)
