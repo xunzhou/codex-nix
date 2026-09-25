@@ -25,9 +25,7 @@ jobs:
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
-      CODEX_BUILD_MANIFEST: ${{ github.workspace }}/native-build.json
       CARGO_BUILD_JOBS: 2
-      CODEX_VERIFY_PATCHES: '1'
       TERM: xterm-256color
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -58,6 +56,8 @@ jobs:
         if: steps.prepare.outputs.build == 'true'
         env:
           VERSION: ${{ steps.prepare.outputs.version }}
+          CODEX_BUILD_MANIFEST: ${{ github.workspace }}/native-build.json
+          CODEX_VERIFY_PATCHES: '1'
         run: |
           set -euo pipefail
           unset NO_COLOR TMUX TERM_PROGRAM
