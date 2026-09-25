@@ -30,7 +30,12 @@ def main():
     api = publisher.GitHub('xunzhou/codex-nix', os.environ['GH_TOKEN'])
     if args.action == 'prepare':
         upstream = publisher.GitHub('openai/codex', os.environ['GH_TOKEN'])
-        releases = upstream.request('/releases?per_page=100')
+        releases = []
+        for page in range(1, 11):
+            batch = upstream.request(f'/releases?per_page=10&page={page}')
+            releases.extend(batch)
+            if len(batch) < 10:
+                break
         versions = {r['tag_name'][6:] for r in releases if not r['draft'] and not r['prerelease']
                     and re.fullmatch(r'rust-v\d+\.\d+\.\d+', r['tag_name'])}
         version = args.version or max(versions, key=lambda v: tuple(map(int, v.split('.'))))

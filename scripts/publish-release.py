@@ -3,6 +3,9 @@
 
 import argparse
 import hashlib
+import gzip
+import http.client
+import time
 import importlib.util
 import json
 import os
@@ -11,7 +14,7 @@ import re
 import subprocess
 import tarfile
 import tempfile
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
@@ -72,13 +75,24 @@ class GitHub:
         payload = None if data is None else json.dumps(data).encode()
         if payload is not None:
             headers['Content-Type'] = 'application/json'
-        try:
-            with urlopen(Request(self.root + path, data=payload, headers=headers, method=method), timeout=120) as response:
-                return json.load(response)
-        except HTTPError as error:
-            if error.code == 404 and method is None and data is None:
-                return None
-            raise
+        headers['Accept-Encoding'] = 'gzip'
+        for attempt in range(4):
+            try:
+                with urlopen(Request(self.root + path, data=payload, headers=headers, method=method), timeout=120) as response:
+                    body = response.read()
+                    if response.headers.get('Content-Encoding') == 'gzip':
+                        body = gzip.decompress(body)
+                    return json.loads(body)
+            except HTTPError as error:
+                if error.code == 404 and method is None and data is None:
+                    return None
+                if payload is not None or method is not None or error.code not in (429, 500, 502, 503, 504) or attempt == 3:
+                    raise
+            except (URLError, http.client.IncompleteRead, TimeoutError, json.JSONDecodeError):
+                # Retry reads only. A failed mutation may already have reached GitHub.
+                if payload is not None or method is not None or attempt == 3:
+                    raise
+            time.sleep(2 ** attempt)
 
     def download(self, asset, destination):
         require(isinstance(asset['id'], int) and asset['id'] > 0, 'invalid asset ID')
