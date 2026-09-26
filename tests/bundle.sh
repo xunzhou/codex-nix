@@ -972,13 +972,18 @@ EOF
     '.tag_name = ("bundle-" + .tag_name) | .assets += [{id: 99,
       name: "codex-native-0.150.1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-linux-x86_64.tar.gz",
       state: "uploaded", digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      url: "https://api.github.com/repos/example/codex-nix/releases/assets/99"}]')
+      url: "https://api.github.com/repos/example/codex-nix/releases/assets/99"},
+      {id: 100,
+      name: "codex-recipe-0.150.1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.tar.gz",
+      state: "uploaded", digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      url: "https://api.github.com/repos/example/codex-nix/releases/assets/100"}]')
   # Reach the import stage using a combined inventory, but download only Nix assets.
   unified_log="$scratch/unified-install.log"
   assert_fails 'Codex executable is missing' run_installer "$unified_log" "$cache_manifest" "$cache_checksums" \
     FAKE_UNIFIED_STATUS=200 FAKE_INSTALLER_RELEASE_METADATA="$unified_metadata"
   [[ "$(grep -c '/releases/tags/' "$unified_log")" == 1 ]] || fail 'unified installer used legacy lookup'
   if grep -q '/releases/assets/99' "$unified_log"; then fail 'Nix installer downloaded native archive'; fi
+  if grep -q '/releases/assets/100' "$unified_log"; then fail 'Nix installer downloaded recipe archive'; fi
   unavailable_log="$scratch/unified-unavailable.log"
   assert_installer_rejected 'could not resolve the exact bundle release' "$unavailable_log" \
     "$cache_manifest" "$cache_checksums" FAKE_UNIFIED_STATUS=503
