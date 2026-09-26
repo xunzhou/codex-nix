@@ -33,13 +33,18 @@ class FakeGitHub:
         self.files = {}
         self.calls = []
         self.fail_upload = False
+        self.latest_tag = None
 
     def request(self, path, data=None, method=None):
         self.calls.append((path, data, method))
+        if path == '/releases/latest':
+            return {'tag_name': self.latest_tag} if self.latest_tag else None
         if data and path == '/releases':
             self.release = dict(data, id=1, assets=[])
         elif method == 'PATCH':
             self.release.update(data)
+            if data.get('make_latest') == 'true':
+                self.latest_tag = self.release['tag_name']
         return copy.deepcopy(self.release)
 
     def upload(self, release_id, path):
@@ -114,6 +119,28 @@ class ReleaseTests(unittest.TestCase):
         original = copy.deepcopy(self.api.release)
         self.publish()
         self.assertEqual(original, self.api.release)
+        self.assertEqual(sum(method == 'PATCH' for _, _, method in self.api.calls), 1)
+
+    def test_rerun_refreshes_stale_latest(self):
+        self.publish()
+        self.api.latest_tag = 'codex-v0.153.4-' + 'a' * 16 + '-' + 'b' * 16
+        self.publish()
+        self.assertEqual(self.api.latest_tag, 'bundle-' + TAG)
+        self.assertEqual(self.api.calls[-1][1], {'make_latest': 'true'})
+
+    def test_rerun_does_not_replace_newer_latest(self):
+        self.publish()
+        self.api.latest_tag = 'bundle-codex-v0.155.0-' + 'a' * 16 + '-' + 'b' * 16
+        self.publish()
+        self.assertEqual(self.api.latest_tag, 'bundle-codex-v0.155.0-' + 'a' * 16 + '-' + 'b' * 16)
+        self.assertEqual(sum(method == 'PATCH' for _, _, method in self.api.calls), 1)
+
+    def test_rerun_does_not_replace_same_version_latest(self):
+        self.publish()
+        self.api.latest_tag = 'bundle-codex-v0.154.0-' + 'c' * 16 + '-' + 'd' * 16
+        self.publish()
+        self.assertEqual(self.api.latest_tag, 'bundle-codex-v0.154.0-' + 'c' * 16 + '-' + 'd' * 16)
+        self.assertEqual(sum(method == 'PATCH' for _, _, method in self.api.calls), 1)
 
     def test_failed_upload_leaves_resumable_draft(self):
         self.api.fail_upload = True

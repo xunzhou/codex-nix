@@ -274,7 +274,7 @@ jobs:
           BASE_SHA: ${{ needs.prepare.outputs.base }}
         run: |
           git push --force-with-lease="refs/heads/main:$BASE_SHA" origin HEAD:refs/heads/main
-      - name: Publish or verify both immutable artifact sets
+      - name: Publish or verify artifacts and refresh GitHub Latest
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

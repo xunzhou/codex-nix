@@ -210,6 +210,13 @@ def publish(api, assets, tag, revision, expected_native, expected_output, recipe
         require(asset['state'] == 'uploaded' and asset['digest'] == expected_digest, 'final release digest mismatch')
     if final['draft']:
         api.request(f'/releases/{release["id"]}', {'draft': False, 'make_latest': 'true'}, method='PATCH')
+    else:
+        latest = api.request('/releases/latest')
+        if latest is None or latest['tag_name'] != release_tag:
+            latest_version = re.fullmatch(r'(?:bundle-)?codex-v(\d+)\.(\d+)\.(\d+)-.*', latest['tag_name']) if latest else None
+            current_version = tuple(map(int, local['codex_version'].split('.')))
+            if latest_version is None or tuple(map(int, latest_version.groups())) < current_version:
+                api.request(f'/releases/{release["id"]}', {'make_latest': 'true'}, method='PATCH')
     print(f'Published or verified {release_tag}: Nix and static native Linux')
 
 
