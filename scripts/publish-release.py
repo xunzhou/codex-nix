@@ -209,7 +209,7 @@ def publish(api, assets, tag, revision, expected_native, expected_output, recipe
         expected_digest = remote[name]['digest'] if name in remote else 'sha256:' + sha256(assets / name)
         require(asset['state'] == 'uploaded' and asset['digest'] == expected_digest, 'final release digest mismatch')
     if final['draft']:
-        api.request(f'/releases/{release["id"]}', {'draft': False, 'make_latest': 'false'}, method='PATCH')
+        api.request(f'/releases/{release["id"]}', {'draft': False, 'make_latest': 'true'}, method='PATCH')
     print(f'Published or verified {release_tag}: Nix and static native Linux')
 
 

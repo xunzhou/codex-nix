@@ -107,6 +107,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(len(self.api.release['assets']), 5)
         self.assertIn(self.recipe_name, self.api.files)
         self.assertEqual(self.api.calls[-1][2], 'PATCH')
+        self.assertEqual(self.api.calls[-1][1], {'draft': False, 'make_latest': 'true'})
 
     def test_rerun_verifies_without_overwriting(self):
         self.publish()
