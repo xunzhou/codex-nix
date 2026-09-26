@@ -186,7 +186,8 @@ main() {
           and ((.assets | type) == "array")
           and ([.assets[] | select(.name as $name | $expected | index($name)) | .name] | sort) == ($expected | sort)
           and all(.assets[]; (.name as $name | $expected | index($name)) != null
-            or (.name | test("^codex-native-[0-9]+[.][0-9]+[.][0-9]+-[a-f0-9]{64}-linux-x86_64[.]tar[.]gz$")))
+            or (.name | test("^codex-native-[0-9]+[.][0-9]+[.][0-9]+-[a-f0-9]{64}-linux-x86_64[.]tar[.]gz$"))
+            or (.name | test("^codex-recipe-[0-9]+[.][0-9]+[.][0-9]+-[a-f0-9]{64}[.]tar[.]gz$")))
           and ([.assets[].name] | unique | length) == (.assets | length)
           and all(.assets[];
             ((.id | type) == "number") and (.id > 0) and ((.id | floor) == .id)
