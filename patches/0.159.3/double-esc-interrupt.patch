@@ -472,7 +472,7 @@ index 571ae8d32b46e17a10c4271f2db0e612ab81b438..3cda96f3b662c86b3fb02ed6e0a8dc6d
              && !self.should_handle_vim_insert_escape(key_event)
          {
 +            if !self.bottom_pane.confirm_interrupt_key(key_event) {
-+                return;
++                return KeyEventAction::None;
 +            }
              self.input_queue.submit_pending_steers_after_interrupt = true;
              if self.submit_op(AppCommand::interrupt()) {
