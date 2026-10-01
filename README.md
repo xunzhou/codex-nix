@@ -52,11 +52,15 @@ reset. Each recipe verifies the expected conflict before resolving it; unexpecte
 code changes still stop publication. A reviewed port in `patches/<version>/`
 takes precedence over automatic rebasing.
 
-For broader automation, [Mergiraf](https://mergiraf.org/) supports syntax-aware
-Rust merges, including independent import and declaration changes. It is a
-candidate for a future fallback, with pinned tooling and the existing patch tests
-and binary builds required before publication. It is not enabled here: this
-repair only needs the verified return-type recipe.
+For other Rust conflicts, the prepare job installs checksum-pinned
+[Mergiraf 0.20.0](https://mergiraf.org/usage.html) and runs its contract tests.
+The rebaser invokes it only after Git and the reviewed conflict recipes cannot
+resolve a Rust file. It uses the three index revisions and accepts only a
+successful merge with no remaining conflict markers. Unsupported files,
+conflicting edits, tool failures, and timeouts still stop the update. Local
+rebases opt in by setting `CODEX_MERGIRAF` to the binary path. Binary builds and
+patch behavior tests remain required before publication.
+
 [Git rerere](https://git-scm.com/docs/git-rerere) can reuse recorded resolutions,
 but this updater creates a fresh temporary repository on every run. Using rerere
 would require a persistent, reviewed resolution cache; enabling it alone would

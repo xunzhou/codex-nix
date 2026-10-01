@@ -121,6 +121,16 @@ class RebaseTests(unittest.TestCase):
                 self.assertFalse(m.resolve_hint_snapshots(tree))
             self.assertEqual(path.read_text(), 'unrecognized conflict')
 
+    def test_mergiraf_failure_leaves_conflict_unresolved(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict('os.environ', {'CODEX_MERGIRAF': '/missing/resolver'}):
+                with patch.object(m, 'git', side_effect=[b'base', b'upstream', b'patched']):
+                    self.assertIsNone(m.merge_rust_conflict(Path(tmp), 'file.rs'))
+
+    def test_mergiraf_requires_explicit_opt_in(self):
+        with patch.dict('os.environ', {}, clear=True):
+            self.assertIsNone(m.merge_rust_conflict(Path('/unused'), 'file.rs'))
+
     def test_clean_rebase(self):
         self.run_case()
     def test_conflicts_publish_nothing(self):
