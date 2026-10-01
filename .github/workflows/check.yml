@@ -23,6 +23,9 @@ jobs:
           extra_nix_config: |
             system-features = benchmark big-parallel kvm nixos-test codex-artifact-publisher
 
+      - name: Install pinned Rust conflict resolver
+        run: bash scripts/setup-mergiraf.sh
+
       - name: Run shell suites
         shell: bash
         run: |
@@ -31,6 +34,7 @@ jobs:
           python3 tests/manifest.py
           python3 tests/release.py
           python3 tests/rebase-patches.py
+          python3 tests/mergiraf.py
           python3 tests/release-client.py
           python3 tests/release-setup.py
           bash tests/package-policy.sh
