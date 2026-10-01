@@ -88,6 +88,39 @@ class RebaseTests(unittest.TestCase):
                 self.assertFalse(m.resolve_hint_snapshots(root))
             self.assertEqual((root / 'example.snap').read_text(), 'unchanged')
 
+    def test_interrupt_return_type_conflict(self):
+        conflict = (
+            "<<<<<<< ours\n"
+            "    pub(crate) fn handle_key_event(&mut self, key_event: KeyEvent) -> KeyEventAction {\n"
+            "||||||| base\n"
+            "    pub(crate) fn handle_key_event(&mut self, key_event: KeyEvent) {\n"
+            "=======\n"
+            "    pub(crate) fn handle_key_event(&mut self, key_event: KeyEvent) {\n"
+            "        self.bottom_pane.reset_interrupt_tap_on_other_key(key_event);\n"
+            ">>>>>>> theirs\n")
+        expected = (
+            "    pub(crate) fn handle_key_event(&mut self, key_event: KeyEvent) -> KeyEventAction {\n"
+            "        self.bottom_pane.reset_interrupt_tap_on_other_key(key_event);\n")
+        self.assertEqual(m.resolve_interrupt_signature(conflict), expected)
+        for changed in (
+            conflict.replace('KeyEventAction', 'OtherAction'),
+            conflict.replace('reset_interrupt_tap_on_other_key', 'interrupt'),
+            conflict + conflict,
+            conflict + "<<<<<<< ours\nother conflict\n=======\nother\n>>>>>>> theirs\n",
+        ):
+            self.assertIsNone(m.resolve_interrupt_signature(changed))
+
+    def test_interrupt_resolver_preserves_all_or_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tree = Path(tmp)
+            name = 'codex-rs/tui/src/chatwidget/interaction.rs'
+            path = tree / name
+            path.parent.mkdir(parents=True)
+            path.write_text('unrecognized conflict')
+            with patch.object(m, 'git', return_value=name.encode() + b'\0'):
+                self.assertFalse(m.resolve_hint_snapshots(tree))
+            self.assertEqual(path.read_text(), 'unrecognized conflict')
+
     def test_clean_rebase(self):
         self.run_case()
     def test_conflicts_publish_nothing(self):

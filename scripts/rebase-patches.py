@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Rebase a patch stack using verified old source; never guess conflict resolutions."""
 import hashlib
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -34,11 +35,33 @@ def double_escape_snapshot(text):
     return ''.join(result)
 
 
+def resolve_interrupt_signature(text):
+    """Combine the reviewed return-type change with our entry reset call only."""
+    pattern = re.compile(
+        r'^<<<<<<< [^\n]+\n(?P<upstream>    pub\(crate\) fn handle_key_event\(&mut self, key_event: KeyEvent\) -> KeyEventAction \{\n)'
+        r'\|\|\|\|\|\|\| [^\n]+\n'
+        r'    pub\(crate\) fn handle_key_event\(&mut self, key_event: KeyEvent\) \{\n'
+        r'=======\n'
+        r'    pub\(crate\) fn handle_key_event\(&mut self, key_event: KeyEvent\) \{\n'
+        r'(?P<reset>        self\.bottom_pane\.reset_interrupt_tap_on_other_key\(key_event\);\n)'
+        r'>>>>>>> [^\n]+\n', re.MULTILINE)
+    result, count = pattern.subn(lambda match: match['upstream'] + match['reset'], text)
+    if count != 1 or re.search(r'^(?:<<<<<<<|=======|>>>>>>>|\|\|\|\|\|\|\|)(?: |$)', result, re.MULTILINE):
+        return None
+    return result
+
+
 def resolve_hint_snapshots(tree):
     conflicts = git(tree, 'diff', '--name-only', '--diff-filter=U', '-z').decode().split('\0')
     conflicts = [name for name in conflicts if name]
     resolutions = {}
     for name in conflicts:
+        if name == 'codex-rs/tui/src/chatwidget/interaction.rs':
+            content = resolve_interrupt_signature((tree / name).read_text())
+            if content is None:
+                return False
+            resolutions[name] = content
+            continue
         if not name.endswith('.snap'):
             return False
         base, upstream, patched = [git(tree, 'show', f':{stage}:{name}').decode() for stage in (1, 2, 3)]
@@ -88,7 +111,7 @@ def rebase(root, source, previous, patches, version):
         for index, patch in enumerate(full):
             path = scratch / f'{index}.patch'
             path.write_bytes(patch)
-            # Nonzero (including any conflict) aborts before publishing any patch.
+            # Only verified conflict recipes may resolve a failed three-way apply.
             try:
                 git(tree, 'apply', '--3way', '--index', str(path))
             except subprocess.CalledProcessError:

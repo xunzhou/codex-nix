@@ -1,0 +1,163 @@
+diff --git a/codex-rs/tui/src/terminal_palette.rs b/codex-rs/tui/src/terminal_palette.rs
+index 7ff9b968f936091faddc9e398f5f8298289dd2b2..f933fed8e8791bb42dd72110b417077607d7aa7a 100644
+--- a/codex-rs/tui/src/terminal_palette.rs
++++ b/codex-rs/tui/src/terminal_palette.rs
+@@ -88,12 +88,20 @@ fn best_color_for_color_level(target: (u8, u8, u8), color_level: StdoutColorLeve
+     }
+ }
+ 
+-#[derive(Clone, Copy)]
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+ pub struct DefaultColors {
+     fg: (u8, u8, u8),
+     bg: (u8, u8, u8),
+ }
+ 
++#[cfg(any(unix, test))]
++fn refreshed_default_colors(
++    current: Option<DefaultColors>,
++    probed: Option<DefaultColors>,
++) -> Option<DefaultColors> {
++    probed.or(current)
++}
++
+ #[cfg(test)]
+ thread_local! {
+     static TEST_DEFAULT_COLORS: std::cell::Cell<Option<DefaultColors>> = const {
+@@ -142,9 +150,25 @@ pub(crate) fn set_default_colors_from_startup_probe(
+     imp::set_default_colors_from_startup_probe(colors);
+ }
+ 
++#[cfg(unix)]
++pub(crate) fn refresh_default_colors_from_terminal() -> bool {
++    let Ok(probe) = crate::terminal_probe::startup(
++        crate::terminal_probe::DEFAULT_TIMEOUT,
++        crate::terminal_probe::StartupKeyboardEnhancementProbe::Skip,
++    ) else {
++        return false;
++    };
++    let Some(colors) = probe.default_colors else {
++        return false;
++    };
++    imp::set_default_colors_from_startup_probe(Some(colors));
++    true
++}
++
+ #[cfg(all(unix, not(test)))]
+ mod imp {
+     use super::DefaultColors;
++    use super::refreshed_default_colors;
+     use std::sync::Mutex;
+     use std::sync::OnceLock;
+ 
+@@ -187,10 +211,11 @@ mod imp {
+         colors: Option<crate::terminal_probe::DefaultColors>,
+     ) {
+         if let Ok(mut cache) = default_colors_cache().lock() {
+-            cache.value = colors.map(|colors| DefaultColors {
++            let probed = colors.map(|colors| DefaultColors {
+                 fg: colors.fg,
+                 bg: colors.bg,
+             });
++            cache.value = refreshed_default_colors(cache.value, probed);
+             cache.attempted = true;
+         }
+     }
+@@ -563,6 +588,24 @@ mod tests {
+     use super::*;
+     use pretty_assertions::assert_eq;
+ 
++    #[test]
++    fn palette_refresh_replaces_successful_probe_and_keeps_last_value_on_failure() {
++        let dark = DefaultColors {
++            fg: (205, 214, 244),
++            bg: (30, 30, 46),
++        };
++        let light = DefaultColors {
++            fg: (76, 79, 105),
++            bg: (239, 241, 245),
++        };
++
++        assert_eq!(
++            refreshed_default_colors(Some(dark), Some(light)),
++            Some(light)
++        );
++        assert_eq!(refreshed_default_colors(Some(light), None), Some(light));
++    }
++
+     #[test]
+     fn best_color_uses_truecolor_without_quantization() {
+         assert_eq!(
+diff --git a/codex-rs/tui/src/tui/event_stream.rs b/codex-rs/tui/src/tui/event_stream.rs
+index 35afa4bfbbd3f89bb903014acdc8c40ac589d9ab..0e594a52042120f5b850da3a33458af227b2d901 100644
+--- a/codex-rs/tui/src/tui/event_stream.rs
++++ b/codex-rs/tui/src/tui/event_stream.rs
+@@ -53,6 +53,8 @@ pub trait EventSource: Send + 'static {
+ pub struct EventBroker<S: EventSource = CrosstermEventSource> {
+     state: Mutex<EventBrokerState<S>>,
+     resume_events_tx: watch::Sender<()>,
++    #[cfg(unix)]
++    palette_refresh_signal: Mutex<Option<tokio::signal::unix::Signal>>,
+     pub(super) size_monitor: Option<SizeMonitor>,
+ }
+ 
+@@ -83,9 +85,14 @@ impl<S: EventSource + Default> EventBrokerState<S> {
+ impl<S: EventSource + Default> EventBroker<S> {
+     pub fn new() -> Self {
+         let (resume_events_tx, _resume_events_rx) = watch::channel(());
++        #[cfg(unix)]
++        let palette_refresh_signal =
++            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::user_defined1()).ok();
+         Self {
+             state: Mutex::new(EventBrokerState::Start),
+             resume_events_tx,
++            #[cfg(unix)]
++            palette_refresh_signal: Mutex::new(palette_refresh_signal),
+             size_monitor: None,
+         }
+     }
+@@ -263,6 +270,32 @@ impl<S: EventSource + Default + Unpin> TuiEventStream<S> {
+         }
+     }
+ 
++    #[cfg(unix)]
++    fn poll_palette_refresh_signal(&mut self, cx: &mut Context<'_>) -> Poll<Option<TuiEvent>> {
++        let signal_received = {
++            let mut signal = self
++                .broker
++                .palette_refresh_signal
++                .lock()
++                .unwrap_or_else(std::sync::PoisonError::into_inner);
++            let Some(signal) = signal.as_mut() else {
++                return Poll::Pending;
++            };
++            matches!(Pin::new(signal).poll_recv(cx), Poll::Ready(Some(())))
++        };
++        if !signal_received {
++            return Poll::Pending;
++        }
++
++        self.broker.pause_events();
++        let refreshed = crate::terminal_palette::refresh_default_colors_from_terminal();
++        self.broker.resume_events();
++        if !refreshed {
++            tracing::warn!("terminal palette refresh did not return default colors");
++        }
++        Poll::Ready(Some(TuiEvent::Draw))
++    }
++
+     /// Map a crossterm event to a [`TuiEvent`], preserving mouse coordinates and modifiers.
+     fn map_crossterm_event(&mut self, event: Event) -> Option<TuiEvent> {
+         match event {
+@@ -312,6 +345,11 @@ impl<S: EventSource + Default + Unpin> Stream for TuiEventStream<S> {
+     type Item = TuiEvent;
+ 
+     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
++        #[cfg(unix)]
++        if let Poll::Ready(event) = self.poll_palette_refresh_signal(cx) {
++            return Poll::Ready(event);
++        }
++
+         // approximate fairness + no starvation via round-robin.
+         let draw_first = self.poll_draw_first;
+         self.poll_draw_first = !self.poll_draw_first;
