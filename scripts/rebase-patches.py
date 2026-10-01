@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Rebase a patch stack using verified old source; never guess conflict resolutions."""
 import hashlib
+import os
 import re
 from pathlib import Path
 import shutil
@@ -51,13 +52,42 @@ def resolve_interrupt_signature(text):
     return result
 
 
+def merge_rust_conflict(tree, name):
+    """Use an explicitly configured Mergiraf; publish only conflict-free output."""
+    binary = os.environ.get('CODEX_MERGIRAF')
+    if not binary:
+        return None
+    with tempfile.TemporaryDirectory(prefix='codex-mergiraf-') as directory:
+        scratch = Path(directory)
+        revisions = []
+        for stage in (1, 2, 3):
+            path = scratch / f'{stage}.rs'
+            path.write_bytes(git(tree, 'show', f':{stage}:{name}'))
+            revisions.append(str(path))
+        output = scratch / 'merged.rs'
+        try:
+            result = subprocess.run([binary, 'merge', *revisions, '--path-name', name,
+                '--output', str(output), '--timeout', '10000'], timeout=30, check=False)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        if result.returncode != 0 or not output.is_file():
+            return None
+        content = output.read_text()
+        if re.search(r'^(?:<<<<<<<|=======|>>>>>>>|\|\|\|\|\|\|\|)(?: |$)', content, re.MULTILINE):
+            return None
+        return content
+
+
 def resolve_hint_snapshots(tree):
     conflicts = git(tree, 'diff', '--name-only', '--diff-filter=U', '-z').decode().split('\0')
     conflicts = [name for name in conflicts if name]
     resolutions = {}
     for name in conflicts:
-        if name == 'codex-rs/tui/src/chatwidget/interaction.rs':
-            content = resolve_interrupt_signature((tree / name).read_text())
+        if name.endswith('.rs'):
+            content = (resolve_interrupt_signature((tree / name).read_text())
+                if name == 'codex-rs/tui/src/chatwidget/interaction.rs' else None)
+            if content is None:
+                content = merge_rust_conflict(tree, name)
             if content is None:
                 return False
             resolutions[name] = content
