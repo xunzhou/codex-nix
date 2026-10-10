@@ -52,6 +52,10 @@ reset. Each recipe verifies the expected conflict before resolving it; unexpecte
 code changes still stop publication. A reviewed port in `patches/<version>/`
 takes precedence over automatic rebasing.
 
+Patches are replayed as Git commits so upstream renames and deletions participate
+in the merge. Deleted snapshots stay deleted only when the patch's entire edit
+is the verified status-hint rewrite; unrelated snapshot edits still require review.
+
 For other Rust conflicts, the prepare job installs checksum-pinned
 [Mergiraf 0.20.0](https://mergiraf.org/usage.html) and runs its contract tests.
 The rebaser invokes it only after Git and the reviewed conflict recipes cannot

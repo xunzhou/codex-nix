@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "default_version": "0.161.0",
+  "default_version": "0.162.1",
   "release_repository": "xunzhou/codex-nix",
   "build": {
     "binaries": {
@@ -52,18 +52,18 @@
     }
   },
   "releases": {
-    "0.161.0": {
+    "0.162.1": {
       "profile": "v8-150.4.0",
       "source": {
-        "url": "https://github.com/openai/codex/archive/refs/tags/rust-v0.161.0.tar.gz",
-        "sha256": "aa012b58ce9ae2410a35c4b3e491fe67aa99b134916491efa341c0691508e416",
-        "nar_hash": "sha256-a6cNz/rKb2L4pFOTBSutNbR7aNyzTI3wF0X7gwidj6g="
+        "url": "https://github.com/openai/codex/archive/refs/tags/rust-v0.162.1.tar.gz",
+        "sha256": "e709bda93494c000a69d4c07a85a1975ce433f5541e737d1a5feddd399c97c60",
+        "nar_hash": "sha256-vYVQoXQdaK0bejUzcpf9uVrzNWWWAct9AsO/t261FAs="
       },
       "patches": [
-        "0.159.3/live-palette-refresh.patch",
-        "0.159.3/double-esc-interrupt.patch"
+        "0.162.1/live-palette-refresh.patch",
+        "0.162.1/double-esc-interrupt.patch"
       ],
-      "cargo_hash": "sha256-y9TVxrqMQvPUbIhTkfrSCnH/NMp/Liz3rpwSK4AjoMA="
+      "cargo_hash": "sha256-UTu+ws1DqL375C+1jaVI9HBqDHnTuAQr7/h1rSzsEzg="
     }
   }
 }
