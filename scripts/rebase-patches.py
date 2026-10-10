@@ -22,6 +22,9 @@ def double_escape_snapshot(text):
     for line in text.splitlines(keepends=True):
         content = line.rstrip('\r\n')
         ending = line[len(content):]
+        quoted = content.startswith('"') and content.endswith('"')
+        if quoted:
+            content = content[1:-1]
         start = content.find('esc to ')
         if content.lstrip().startswith('• ') and start >= 0 and content[max(0, start - 4):start] != 'esc ':
             tail = content[start:]
@@ -32,7 +35,7 @@ def double_escape_snapshot(text):
                 content = content[:start] + tail.replace(old, new, 1)
                 if padding >= 4:
                     content = content[:-4]
-        result.append(content + ending)
+        result.append(('"' + content + '"' if quoted else content) + ending)
     return ''.join(result)
 
 
@@ -94,13 +97,24 @@ def resolve_hint_snapshots(tree):
             continue
         if not name.endswith('.snap'):
             return False
-        base, upstream, patched = [git(tree, 'show', f':{stage}:{name}').decode() for stage in (1, 2, 3)]
+        base = git(tree, 'show', f':1:{name}').decode()
+        patched = git(tree, 'show', f':3:{name}').decode()
         if base == patched or double_escape_snapshot(base) != patched:
             return False
-        resolutions[name] = double_escape_snapshot(upstream)
+        # A modify/delete conflict has no upstream blob. Preserve the deletion
+        # only after proving our edit was exclusively the known hint rewrite.
+        stages = git(tree, 'ls-files', '--unmerged', '--', name).decode()
+        if not any(line.split('\t', 1)[0].endswith(' 2') for line in stages.splitlines()):
+            resolutions[name] = None
+        else:
+            upstream = git(tree, 'show', f':2:{name}').decode()
+            resolutions[name] = double_escape_snapshot(upstream)
     if not resolutions:
         return False
     for name, content in resolutions.items():
+        if content is None:
+            git(tree, 'rm', '--', name)
+            continue
         (tree / name).write_text(content)
         git(tree, 'add', '--', name)
     return True
@@ -125,11 +139,11 @@ def rebase(root, source, previous, patches, version):
         git(tree, 'init', '-q')
         git(tree, 'add', '-f', '.')
         git(tree, 'commit', '-qm', 'verified previous source')
-        full = []
+        commits = []
         for name in patches:
             git(tree, 'apply', '--index', str(root / 'patches' / name))
-            full.append(git(tree, 'diff', '--cached', '--binary', '--full-index'))
             git(tree, 'commit', '-qm', name)
+            commits.append(git(tree, 'rev-parse', 'HEAD').decode().strip())
         # Preserve the old blobs for Git's three-way merge, replacing only the worktree.
         for item in tree.iterdir():
             if item.name != '.git':
@@ -138,12 +152,11 @@ def rebase(root, source, previous, patches, version):
         git(tree, 'add', '-A', '-f')
         git(tree, 'commit', '-qm', 'new upstream source')
         rebased = []
-        for index, patch in enumerate(full):
-            path = scratch / f'{index}.patch'
-            path.write_bytes(patch)
-            # Only verified conflict recipes may resolve a failed three-way apply.
+        for index, commit in enumerate(commits):
+            # Commit replay handles upstream renames and exposes modify/delete
+            # conflicts, unlike git apply which aborts on absent target paths.
             try:
-                git(tree, 'apply', '--3way', '--index', str(path))
+                git(tree, '-c', 'merge.conflictStyle=diff3', 'cherry-pick', '--no-commit', commit)
             except subprocess.CalledProcessError:
                 if not resolve_hint_snapshots(tree):
                     raise

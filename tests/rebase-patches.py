@@ -14,6 +14,58 @@ m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 
 class RebaseTests(unittest.TestCase):
+    def run_missing_snapshot_case(self, rename=False, unrelated=False, quoted=False):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old = root / 'old'; old.mkdir()
+            base = 'header\n• Working (0s • esc to interrupt)\nfooter\n'
+            if quoted:
+                base = 'header\n"• Working (0s • esc to interrupt)        "\nfooter\n'
+            (old / 'old.snap').write_text(base)
+            (old / 'kept.snap').write_text(base)
+            archive = root / 'source.tar.gz'
+            with tarfile.open(archive, 'w:gz') as tar:
+                tar.add(old, arcname='release')
+            previous = {'source': {'url': archive.as_uri(), 'sha256': hashlib.sha256(archive.read_bytes()).hexdigest()}}
+            m.git(old, 'init', '-q'); m.git(old, 'add', '.'); m.git(old, 'commit', '-qm', 'base')
+            for name in ('old.snap', 'kept.snap'):
+                content = m.double_escape_snapshot(base)
+                if unrelated and name == 'old.snap':
+                    content += 'unrelated change\n'
+                (old / name).write_text(content)
+            (root / 'patches').mkdir()
+            (root / 'patches/example.patch').write_bytes(m.git(old, 'diff'))
+            source = root / 'new'; source.mkdir()
+            (source / 'kept.snap').write_text(base)
+            if rename:
+                (source / 'renamed.snap').write_text(base)
+            if unrelated:
+                with self.assertRaises(subprocess.CalledProcessError):
+                    m.rebase(root, source, previous, ['example.patch'], '0.2.0')
+                self.assertFalse((root / 'patches/0.2.0').exists())
+                self.assertEqual((source / 'kept.snap').read_text(), base)
+                return
+            names = m.rebase(root, source, previous, ['example.patch'], '0.2.0')
+            self.assertFalse((source / 'old.snap').exists())
+            self.assertEqual((source / 'kept.snap').read_text(), m.double_escape_snapshot(base))
+            if rename:
+                self.assertEqual((source / 'renamed.snap').read_text(), m.double_escape_snapshot(base))
+                (source / 'renamed.snap').write_text(base)
+            (source / 'kept.snap').write_text(base)
+            m.git(source, 'apply', '--check', str(root / 'patches' / names[0]))
+
+    def test_deleted_hint_snapshot_stays_deleted(self):
+        self.run_missing_snapshot_case()
+
+    def test_deleted_quoted_hint_snapshot_stays_deleted(self):
+        self.run_missing_snapshot_case(quoted=True)
+
+    def test_renamed_hint_snapshot_receives_patch(self):
+        self.run_missing_snapshot_case(rename=True)
+
+    def test_deleted_snapshot_with_unrelated_edit_aborts(self):
+        self.run_missing_snapshot_case(unrelated=True)
+
     def run_case(self, conflict=False):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -80,11 +132,18 @@ class RebaseTests(unittest.TestCase):
         self.assertEqual(m.double_escape_snapshot(original), expected)
         self.assertEqual(m.double_escape_snapshot(expected), expected)
 
+    def test_quoted_hint_rewrite_preserves_width_and_quotes(self):
+        original = '"• Working (0s • esc to interrupt)        "\n"user says esc to interrupt"\n'
+        expected = '"• Working (0s • esc esc to interrupt)    "\n"user says esc to interrupt"\n'
+        self.assertEqual(m.double_escape_snapshot(original), expected)
+        self.assertEqual(m.double_escape_snapshot(expected), expected)
+        self.assertEqual(len(original), len(expected))
+
     def test_unrelated_snapshot_conflict_is_not_resolved(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / 'example.snap').write_text('unchanged')
-            with patch.object(m, 'git', side_effect=[b'example.snap\0', b'base', b'upstream', b'unrelated edit']):
+            with patch.object(m, 'git', side_effect=[b'example.snap\0', b'base', b'unrelated edit']):
                 self.assertFalse(m.resolve_hint_snapshots(root))
             self.assertEqual((root / 'example.snap').read_text(), 'unchanged')
 
