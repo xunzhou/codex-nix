@@ -3,6 +3,7 @@ set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 updater="$repo_root/scripts/update.sh"
+real_jq=$(command -v jq)
 
 fail() {
   printf 'update tests: %s\n' "$*" >&2
@@ -66,6 +67,16 @@ FAKE
 cat >"$fake_bin/sleep" <<'FAKE'
 #!/usr/bin/env bash
 set -euo pipefail
+FAKE
+
+cat >"$fake_bin/jq" <<'FAKE'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ ${TEST_JQ_FAIL:-} == count && $1 == length ]] ||
+  [[ ${TEST_JQ_FAIL:-} == merge && $1 == -s && ${2:-} == add ]]; then
+  exit 29
+fi
+exec "$TEST_REAL_JQ" "$@"
 FAKE
 
 cat >"$fake_bin/python3" <<'FAKE'
@@ -135,6 +146,7 @@ FAKE
 chmod +x \
   "$fake_bin/curl" \
   "$fake_bin/sleep" \
+  "$fake_bin/jq" \
   "$fake_bin/python3" \
   "$fake_bin/nix" \
   "$fake_bin/git"
@@ -172,6 +184,7 @@ run_update() {
       TEST_CURRENT_VERSION="$current_version" \
       TEST_BUILD_VERSION="$build_version" \
       TEST_RELEASE_JSON="$release_json" \
+      TEST_REAL_JQ="$real_jq" \
       "$@" \
       bash scripts/update.sh "${TEST_VERSION_ARGUMENTS[@]}"
   )
@@ -295,6 +308,17 @@ for invalid_page in '{"message":"API error"}' null '{' '[] []' "$latest_releases
   printf '%s\n' "$invalid_page" >"$release_pages/2.json"
   if run_update 0.150.1 0.151.0 ignored env TEST_RELEASE_PAGES="$release_pages"; then
     fail 'invalid fallback page was accepted'
+  fi
+  assert_log_excludes 'nix <eval>'
+  assert_log_excludes 'manifest-update'
+done
+
+# Helper failures must not silently truncate a traversal or return partial data.
+for failed_jq in count merge; do
+  write_release_pages "$(jq '. + [.[0]]' <<<"$latest_releases")"
+  if run_update 0.150.1 0.151.0 ignored \
+    env TEST_RELEASE_PAGES="$release_pages" TEST_JQ_FAIL="$failed_jq"; then
+    fail "fallback ignored a failed jq $failed_jq operation"
   fi
   assert_log_excludes 'nix <eval>'
   assert_log_excludes 'manifest-update'
