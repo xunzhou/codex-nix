@@ -3,6 +3,7 @@ set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 updater="$repo_root/scripts/update.sh"
+real_jq=$(command -v jq)
 
 fail() {
   printf 'update tests: %s\n' "$*" >&2
@@ -40,12 +41,42 @@ fi
 if [[ ${TEST_CURL_FAIL:-0} == 1 ]]; then
   exit 22
 fi
+if [[ -n ${TEST_RELEASE_PAGES:-} ]]; then
+  case "${!#}" in
+    'https://api.github.com/repos/openai/codex/releases?per_page=100')
+      # A failed response must never contaminate the fallback listing.
+      printf '[{"tag_name":"rust-v99.0.0","draft":false,"prerelease":false}]'
+      exit 92
+      ;;
+    'https://api.github.com/repos/openai/codex/releases?per_page=5&page='*)
+      page=${!#}
+      page=${page##*&page=}
+      [[ -f "$TEST_RELEASE_PAGES/$page.json" ]] || exit 22
+      cat "$TEST_RELEASE_PAGES/$page.json"
+      ;;
+    *)
+      printf 'unexpected release request: %s\n' "${!#}" >&2
+      exit 28
+      ;;
+  esac
+  exit 0
+fi
 printf '%s\n' "$TEST_RELEASE_JSON"
 FAKE
 
 cat >"$fake_bin/sleep" <<'FAKE'
 #!/usr/bin/env bash
 set -euo pipefail
+FAKE
+
+cat >"$fake_bin/jq" <<'FAKE'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ ${TEST_JQ_FAIL:-} == count && $1 == length ]] ||
+  [[ ${TEST_JQ_FAIL:-} == merge && $1 == -s && ${2:-} == add ]]; then
+  exit 29
+fi
+exec "$TEST_REAL_JQ" "$@"
 FAKE
 
 cat >"$fake_bin/python3" <<'FAKE'
@@ -115,6 +146,7 @@ FAKE
 chmod +x \
   "$fake_bin/curl" \
   "$fake_bin/sleep" \
+  "$fake_bin/jq" \
   "$fake_bin/python3" \
   "$fake_bin/nix" \
   "$fake_bin/git"
@@ -122,6 +154,18 @@ chmod +x \
 stable_release() {
   local version="$1"
   printf '{"tag_name":"rust-v%s","draft":false,"prerelease":false}\n' "$version"
+}
+
+write_release_pages() {
+  local releases="$1"
+  local count page
+  rm -rf "$release_pages"
+  mkdir -p "$release_pages"
+  count=$(jq 'length' <<<"$releases")
+  for ((page = 1; (page - 1) * 5 <= count; page++)); do
+    jq --argjson start "$(((page - 1) * 5))" '.[$start:$start + 5]' \
+      <<<"$releases" >"$release_pages/$page.json"
+  done
 }
 
 run_update() {
@@ -140,6 +184,7 @@ run_update() {
       TEST_CURRENT_VERSION="$current_version" \
       TEST_BUILD_VERSION="$build_version" \
       TEST_RELEASE_JSON="$release_json" \
+      TEST_REAL_JQ="$real_jq" \
       "$@" \
       bash scripts/update.sh "${TEST_VERSION_ARGUMENTS[@]}"
   )
@@ -160,6 +205,7 @@ assert_log_excludes() {
 
 TEST_COMMAND_LOG="$test_root/commands.log"
 TEST_CURL_ATTEMPT_FILE="$test_root/curl-attempt"
+release_pages="$test_root/release-pages"
 
 # Removing the stable-tag filter would select the alpha/RC entries instead.
 latest_releases='[
@@ -172,6 +218,7 @@ TEST_VERSION_ARGUMENTS=()
 run_update 0.150.1 0.151.0 "$latest_releases" env
 assert_log_contains 'curl <-'
 assert_log_contains '/repos/openai/codex/releases?per_page=100'
+assert_log_excludes 'per_page=5'
 assert_log_contains 'manifest-update <scripts/update-manifest.py> <0.151.0>'
 
 # A transient GitHub API transport failure must not abort the scheduled update.
@@ -182,23 +229,100 @@ run_update 0.150.1 0.151.0 "$latest_releases" \
     TEST_CURL_ATTEMPT_FILE="$TEST_CURL_ATTEMPT_FILE" \
     TEST_CURL_FAILURES_BEFORE_SUCCESS=2
 assert_log_contains 'manifest-update <scripts/update-manifest.py> <0.151.0>'
+assert_log_excludes 'per_page=5'
 
-# A persistent GitHub API failure must stop after the bounded retry budget.
+# A persistent GitHub API failure must stop after both bounded retry budgets.
 TEST_VERSION_ARGUMENTS=()
 : >"$TEST_CURL_ATTEMPT_FILE"
 set +e
 run_update 0.150.1 0.151.0 "$latest_releases" \
   env \
     TEST_CURL_ATTEMPT_FILE="$TEST_CURL_ATTEMPT_FILE" \
-    TEST_CURL_FAILURES_BEFORE_SUCCESS=4
+    TEST_CURL_FAILURES_BEFORE_SUCCESS=8
 persistent_curl_status=$?
 set -e
 [[ $persistent_curl_status -eq 1 ]] ||
   fail "persistent curl failure status was $persistent_curl_status, expected 1"
 read -r persistent_curl_attempts <"$TEST_CURL_ATTEMPT_FILE"
-[[ $persistent_curl_attempts -eq 4 ]] ||
-  fail "persistent curl failure made $persistent_curl_attempts attempts, expected 4"
+[[ $persistent_curl_attempts -eq 8 ]] ||
+  fail "persistent curl failure made $persistent_curl_attempts attempts, expected 8"
+assert_log_contains 'per_page=5&page=1'
+assert_log_excludes 'nix <eval>'
 assert_log_excludes 'manifest-update'
+
+# A failed large listing falls back over exactly the same first 100 releases.
+# A newer stable release at entry 100 must win over earlier stable tags, while
+# drafts, prereleases, malformed versions, and entry 101 remain ineligible.
+paginated_releases=$(jq -n '
+  [range(0; 101) | {tag_name: "rust-v9.0.0-alpha.1", draft: false, prerelease: true}]
+  | .[0] = {tag_name: "rust-v0.9.0", draft: false, prerelease: false}
+  | .[1] = {tag_name: "rust-v9.0.0", draft: true, prerelease: false}
+  | .[2] = {tag_name: "rust-v9.0.0", draft: false, prerelease: true}
+  | .[3] = {tag_name: "rust-v09.0.0", draft: false, prerelease: false}
+  | .[4] = null
+  | .[99] = {tag_name: "rust-v0.151.0", draft: false, prerelease: false}
+  | .[100] = {tag_name: "rust-v9.0.0", draft: false, prerelease: false}
+')
+write_release_pages "$paginated_releases"
+run_update 0.150.1 0.151.0 ignored env TEST_RELEASE_PAGES="$release_pages"
+assert_log_contains 'manifest-update <scripts/update-manifest.py> <0.151.0>'
+assert_log_contains 'per_page=5&page=20>'
+assert_log_excludes 'per_page=5&page=21>'
+[[ $(grep -c '^curl ' "$TEST_COMMAND_LOG") -eq 24 ]] ||
+  fail 'fallback did not use four large requests and twenty small pages'
+
+# A short last page completes the listing, including the already-current path.
+write_release_pages "$(jq '. + [.[0], .[0]]' <<<"$latest_releases")"
+set +e
+run_update 0.151.0 0.151.0 ignored env TEST_RELEASE_PAGES="$release_pages"
+fallback_current_status=$?
+set -e
+[[ $fallback_current_status -eq 10 ]] ||
+  fail "fallback already-current exit status was $fallback_current_status, expected 10"
+assert_log_contains 'per_page=5&page=2>'
+assert_log_excludes 'per_page=5&page=3>'
+assert_log_excludes 'manifest-update'
+
+# An empty terminal page also completes a listing with a multiple of five entries.
+write_release_pages "$(jq '. + [.[0]]' <<<"$latest_releases")"
+run_update 0.150.1 0.151.0 ignored env TEST_RELEASE_PAGES="$release_pages"
+assert_log_contains 'per_page=5&page=2>'
+assert_log_excludes 'per_page=5&page=3>'
+assert_log_contains 'manifest-update <scripts/update-manifest.py> <0.151.0>'
+
+# Even after seeing a stable tag, a missing final page must fail closed.
+write_release_pages "$paginated_releases"
+rm "$release_pages/20.json"
+if run_update 0.150.1 0.151.0 ignored env TEST_RELEASE_PAGES="$release_pages"; then
+  fail 'incomplete release traversal was accepted'
+fi
+[[ $(grep -c 'per_page=5&page=20>' "$TEST_COMMAND_LOG") -eq 4 ]] ||
+  fail 'failed fallback page did not exhaust exactly four retries'
+assert_log_excludes 'nix <eval>'
+assert_log_excludes 'manifest-update'
+
+# Invalid or oversized pages cannot be mistaken for a complete listing.
+for invalid_page in '{"message":"API error"}' null '{' '[] []' "$latest_releases$latest_releases" \
+  "$(jq '. + [.[0], .[0]]' <<<"$latest_releases")"; do
+  write_release_pages "$(jq '. + [.[0]]' <<<"$latest_releases")"
+  printf '%s\n' "$invalid_page" >"$release_pages/2.json"
+  if run_update 0.150.1 0.151.0 ignored env TEST_RELEASE_PAGES="$release_pages"; then
+    fail 'invalid fallback page was accepted'
+  fi
+  assert_log_excludes 'nix <eval>'
+  assert_log_excludes 'manifest-update'
+done
+
+# Helper failures must not silently truncate a traversal or return partial data.
+for failed_jq in count merge; do
+  write_release_pages "$(jq '. + [.[0]]' <<<"$latest_releases")"
+  if run_update 0.150.1 0.151.0 ignored \
+    env TEST_RELEASE_PAGES="$release_pages" TEST_JQ_FAIL="$failed_jq"; then
+    fail "fallback ignored a failed jq $failed_jq operation"
+  fi
+  assert_log_excludes 'nix <eval>'
+  assert_log_excludes 'manifest-update'
+done
 
 # Skipping exact release validation would allow a different or prerelease tag.
 TEST_VERSION_ARGUMENTS=(0.151.0)

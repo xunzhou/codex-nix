@@ -55,6 +55,40 @@ github_api() {
   done
 }
 
+list_releases() {
+  local response page_metadata page_count page
+  local pages=''
+  local page_size=5
+
+  if response=$(github_api "$upstream_api/releases?per_page=100"); then
+    printf '%s\n' "$response"
+    return 0
+  fi
+
+  # Large release listings can time out. Traverse the same first 100 releases
+  # in smaller pages; never select a version from an incomplete traversal.
+  printf 'codex updater: large release listing failed; retrying with smaller pages\n' >&2
+  for ((page = 1; page <= 100 / page_size; page++)); do
+    response=$(github_api "$upstream_api/releases?per_page=$page_size&page=$page") ||
+      return 1
+    # Drop release notes and assets before accumulating pages. Preserve the
+    # selection fields and non-object entries for the existing stable filter.
+    page_metadata=$(jq -cse --argjson size "$page_size" '
+      if length == 1 and (.[0] | type == "array" and length <= $size) then
+        .[0] | map(if type == "object" then {tag_name, draft, prerelease} else . end)
+      else
+        error("invalid release page")
+      end
+    ' <<<"$response") || return 1
+    pages+="$page_metadata"$'\n'
+    page_count=$(jq 'length' <<<"$page_metadata") || return 1
+    if ((page_count < page_size)); then
+      break
+    fi
+  done
+  jq -s 'add' <<<"$pages"
+}
+
 (($# <= 1)) || usage
 
 if (($# == 1)); then
@@ -74,7 +108,7 @@ if (($# == 1)); then
     end
   ' <<<"$release_metadata") || fail "upstream release $release_tag is not stable"
 else
-  releases_metadata=$(github_api "$upstream_api/releases?per_page=100") ||
+  releases_metadata=$(list_releases) ||
     fail 'could not list upstream releases'
   validated_tag=$(jq -er --arg pattern "$stable_tag_pattern" '
     if type != "array" then
