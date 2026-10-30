@@ -63,6 +63,65 @@ class UpdateTests(unittest.TestCase):
                 UPDATER.update(self.root, '0.2.0')
         self.assertEqual(self.manifest.read_bytes(), before)
 
+    def test_new_patch_stack_is_visible_before_vendor_evaluation(self):
+        # Exercise both a reviewed untracked port and patches emitted by rebase.
+        real_run = subprocess.run
+        for rebased in (False, True):
+            with self.subTest(rebased=rebased), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / 'patches').mkdir()
+                names = ['live-palette-refresh.patch', 'double-esc-interrupt.patch']
+                data = json.loads(json.dumps(self.data))
+                data['releases']['0.1.0']['patches'] = names
+                (root / 'build.json').write_text(json.dumps(data))
+                for name in names:
+                    (root / 'patches' / name).write_text('old patch')
+                def git(*args):
+                    return real_run(['git', '-C', str(root), *args], check=True,
+                                    capture_output=True, text=True).stdout
+                git('init', '-q')
+                git('add', '.')
+                git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+                    'commit', '-qm', 'fixture')
+                before = git('rev-parse', 'HEAD')
+                (root / 'patches/unrelated.patch').write_text('unrelated')
+                selected = [f'0.2.0/{name}' for name in names]
+                def emit(*args):
+                    (root / 'patches/0.2.0').mkdir()
+                    for name in selected:
+                        (root / 'patches' / name).write_text('new patch')
+                    return selected
+                if not rebased:
+                    emit()
+                def command(*args, **kwargs):
+                    if args[:2] == ('git', 'add'):
+                        return real_run(args, check=True, text=True, **kwargs)
+                    if rebased and args[0] == 'git' and 'apply' in args:
+                        raise subprocess.CalledProcessError(1, args)
+                    if args[:2] == ('nix', 'build'):
+                        verify_index()
+                    return self.command(*args, **kwargs)
+                def verify_index():
+                    tracked = git('ls-files').splitlines()
+                    for name in selected:
+                        self.assertIn(f'patches/{name}', tracked)
+                    self.assertNotIn('patches/unrelated.patch', tracked)
+                    self.assertEqual(git('diff', '--cached', '--name-only'), '')
+                    self.assertEqual(git('rev-parse', 'HEAD'), before)
+                def vendor(*args, **kwargs):
+                    verify_index()
+                    return subprocess.CompletedProcess([], 1, stdout='',
+                        stderr='got: sha256-' + 'A' * 43 + '=')
+                module = mock.Mock()
+                module.rebase.side_effect = emit
+                with mock.patch.object(UPDATER, 'command', side_effect=command), \
+                     mock.patch.object(UPDATER.subprocess, 'run', side_effect=vendor), \
+                     mock.patch.object(UPDATER.importlib.util, 'spec_from_file_location'), \
+                     mock.patch.object(UPDATER.importlib.util, 'module_from_spec', return_value=module):
+                    UPDATER.update(root, '0.2.0')
+                result = json.loads((root / 'build.json').read_text())
+                self.assertEqual(result['releases']['0.2.0']['patches'], selected)
+
 
 if __name__ == '__main__':
     unittest.main()
