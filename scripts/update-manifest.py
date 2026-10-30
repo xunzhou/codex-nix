@@ -78,6 +78,11 @@ def update(root, version):
         data['releases'] = {version: recipe}
         data['default_version'] = version
         try:
+            # Git-backed flakes omit untracked files, including newly rebased
+            # patches. Intent-to-add exposes only this recipe's patch stack to
+            # Nix without staging its contents or committing an unverified update.
+            command('git', 'add', '--intent-to-add', '--',
+                    *(f'patches/{patch}' for patch in recipe['patches']), cwd=root)
             manifest.write_text(json.dumps(data, indent=2) + '\n')
             result = subprocess.run(['nix', 'build', '--no-link', '.#codex.cargoDeps'], cwd=root, capture_output=True, text=True)
             hashes = re.findall(r'got:\s+(sha256-[A-Za-z0-9+/]+=)', result.stdout + result.stderr)
