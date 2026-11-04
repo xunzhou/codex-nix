@@ -35,7 +35,11 @@ rustPlatform.buildRustPackage ({
     export NIX_BUILD_CORES=2
   '';
   requiredSystemFeatures = [ "codex-artifact-publisher" ];
-  doCheck = false;
+  # Exercise live refresh behavior in PR and Nix release builds as well as the
+  # native release path; applying a patch and checking a marker is insufficient.
+  doCheck = true;
+  cargoTestFlags = [ "-p" "codex-tui" "--lib" ];
+  checkFlags = [ "palette_refresh" ];
   nativeBuildInputs = [ pkg-config ];
   buildInputs = [ openssl ];
   installPhase = ''
