@@ -2,7 +2,7 @@
 
 Codex with two small changes:
 
-- **Live terminal colors:** refresh the palette without restarting Codex.
+- **Live terminal colors:** refresh the palette and adaptive syntax highlighting without restarting Codex.
 - **Double Escape to interrupt:** press Escape twice within 400 ms to stop a turn.
   Menus, Vim mode, and Ctrl-C keep their usual behavior.
 
@@ -35,6 +35,13 @@ After changing terminal colors, refresh the most recent Codex process:
 ```sh
 kill -USR1 "$(pgrep -n codex)"
 ```
+
+Palette refresh follows the current session's `tui.theme` preference. With no
+explicit theme, syntax highlighting switches between Catppuccin Latte and Mocha
+with the terminal background. Explicit bundled or custom themes stay selected.
+A successful refresh invalidates syntax rendering caches; a failed terminal
+probe keeps the last usable palette and syntax theme. Terminal scrollback that
+has already left the redrawable viewport retains its original colors.
 
 ## Automatic updates
 
