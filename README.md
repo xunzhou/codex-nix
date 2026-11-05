@@ -68,6 +68,8 @@ exported pair and a V8 calculation in an empty filesystem without `/nix/store`.
 Pass an existing exported tarball as its second argument to skip repacking.
 Use sufficient temporary disk space for fresh builds; hosted build jobs reclaim
 unused SDKs and add 16 GiB of swap for the optimized Rust test link.
+A tiny nextest fixture validates the rendered flags and test selection before
+the full compilation.
 
 ## Automatic updates
 

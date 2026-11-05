@@ -65,6 +65,10 @@ jobs:
         if: github.event_name == 'pull_request'
         run: bash scripts/setup-build-swap.sh
 
+      - name: Validate rendered nextest flags
+        if: github.event_name == 'pull_request'
+        run: nix shell --inputs-from . nixpkgs#cargo nixpkgs#rustc nixpkgs#gcc nixpkgs#cargo-nextest --command python3 tests/nextest-flags.py
+
       - name: Build and test Codex binaries
         if: github.event_name == 'pull_request'
         shell: bash
