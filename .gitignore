@@ -1,4 +1,6 @@
 /result
+/result-static
+/dist/
 /.worktrees/
 __pycache__/
 /.native-cache/

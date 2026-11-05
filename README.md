@@ -43,6 +43,33 @@ A successful refresh invalidates syntax rendering caches; a failed terminal
 probe keeps the last usable palette and syntax theme. Terminal scrollback that
 has already left the redrawable viewport retains its original colors.
 
+## Static Nix experiment
+
+The experimental `codex-static` target builds the binary pair with Nix's musl
+toolchain, static OpenSSL, and static libcap. It uses eight compiler jobs.
+Export that output directly into the existing native release format:
+
+```sh
+nix build .#codex-static --out-link result-static
+python3 scripts/export-native.py --package result-static --output-dir dist
+bash tests/static-portability.sh result-static
+```
+
+The exporter preserves the exact binary bytes and verifies the version, patch
+marker, checksums, and absence of ELF interpreter/shared-library dependencies.
+The portability check requires `bwrap`, `readelf`, and Python 3.12+. It runs the
+exported pair and a V8 calculation in an empty filesystem without `/nix/store`.
+Pass an existing exported tarball as its second argument to skip repacking.
+
+Verified locally with Codex 0.163.0: both binaries ran without Nix, and V8
+returned `42`. The clean compile took 42 minutes 49 seconds with eight jobs.
+This run needed dependency sources moved out of an almost-full RAM-backed
+`/tmp` after compilation; allow sufficient temporary storage for fresh builds.
+
+The default Nix package and scheduled release builds still use the existing
+pipeline. This target tests whether one static compilation can supply both
+release formats before changing publication.
+
 ## Automatic updates
 
 [GitHub Actions](https://github.com/xunzhou/codex-nix/actions/workflows/update.yml)
