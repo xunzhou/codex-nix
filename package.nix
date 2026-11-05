@@ -45,11 +45,12 @@ rustPlatform.buildRustPackage ({
   doCheck = true;
   useNextest = true;
   cargoTestFlags = [
-    "-p" "codex-tui" "--lib" "--build-jobs" "2" "-E"
+    "-p" "codex-tui" "-p" "codex-config" "--lib" "--build-jobs" "2" "-E"
     # stdenv splits this environment variable on whitespace: keep one token.
-    "test(/(^|::|_)esc/)|test(palette_refresh)|test(hook_status_reflows)|test(running_hooks_fit)|test(compaction_status)|test(usage_notice)"
+    "test(/(^|::|_)esc/)|test(palette_refresh)|test(hook_status_reflows)|test(running_hooks_fit)|test(compaction_status)|test(usage_notice)|test(external_editor_reference)"
   ];
   preCheck = ''
+    export RUST_MIN_STACK=16777216
     unset NO_COLOR TMUX TERM_PROGRAM
     export TERM=xterm-256color
     export HOME="$TMPDIR/codex-test-home"
