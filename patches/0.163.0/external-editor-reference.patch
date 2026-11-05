@@ -509,10 +509,10 @@ index 583beb3..e86893e 100644
  #[cfg(test)]
 diff --git a/codex-rs/tui/src/external_editor_reference.rs b/codex-rs/tui/src/external_editor_reference.rs
 new file mode 100644
-index 0000000..d6341d5
+index 0000000..c5236a0
 --- /dev/null
 +++ b/codex-rs/tui/src/external_editor_reference.rs
-@@ -0,0 +1,91 @@
+@@ -0,0 +1,85 @@
 +//! Strict framing for reference-only editor context. No heuristic recovery into the composer.
 +
 +pub(super) struct ReferenceDocument {
@@ -524,13 +524,7 @@ index 0000000..d6341d5
 +impl ReferenceDocument {
 +    pub(super) fn new(reference: &str, id: String) -> Self {
 +        Self {
-+            prefix: format!(
-+                "# Codex assistant reference — NOT part of your reply\n\n\
-+                 Leave this reference and both reply markers unchanged.\n\
-+                 Edit only between BEGIN REPLY and END REPLY.\n\
-+                 Your editor may retain reference copies in history or backups.\n\n\
-+                 {reference}\n\n<!-- BEGIN REPLY {id} -->\n"
-+            ),
++            prefix: format!("{reference}\n\n<!-- BEGIN REPLY {id} -->\n"),
 +            suffix: format!("\n<!-- END REPLY {id} -->\n"),
 +            id,
 +        }

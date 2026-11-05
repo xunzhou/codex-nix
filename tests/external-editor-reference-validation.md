@@ -28,10 +28,6 @@ A document with reference context has this shape (the actual id is a fresh UUID,
 checked against the reference and draft):
 
 ```text
-# Codex assistant reference — NOT part of your reply
-
-[editing instructions and editor history/backup notice]
-
 Which color?
 Which size?
 
@@ -82,6 +78,11 @@ submit operation. Its malformed-buffer pass verifies the original draft and
 reported recovery file through the same App return path.
 
 ## Results
+
+The owner reported the original feature validated in a manual trial, then requested
+removing the reference heading and three instruction/backup-notice lines from the
+editor document. Only the assistant response and marked reply area remain. The
+backup notice remains in the README.
 
 Validated in the isolated feature worktree:
 

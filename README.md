@@ -88,8 +88,7 @@ configuration is reused, including its wait-for-close option (for example, Zed's
 
 Ctrl+G opens the current draft below the active conversation's last completed
 assistant response, using the same response cache as Codex's copy-response action.
-The reference is labeled **NOT part of your reply**. Edit only between the unique
-`BEGIN REPLY` and `END REPLY` markers. Closing successfully returns only that
+Edit only between the unique `BEGIN REPLY` and `END REPLY` markers. Closing successfully returns only that
 reply, with whitespace preserved, to the originating unsent composer. It does
 not submit. Existing drafts are included; with no prior response the document
 contains just the draft. An empty reply clears the draft.
