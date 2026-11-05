@@ -55,8 +55,11 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn('test(/(^|::|_)esc/)', native)
         self.assertNotIn('test(esc)', package + native)
         for selector in ('palette_refresh', 'hook_status_reflows',
-                         'running_hooks_fit', 'compaction_status', 'usage_notice'):
+                         'running_hooks_fit', 'compaction_status', 'usage_notice',
+                         'external_editor_reference'):
             self.assertIn(f'test({selector})', package)
+            self.assertIn(f'test({selector})', native)
+        self.assertIn('"-p" "codex-config"', package)
         self.assertIn('export NIX_BUILD_CORES=2', package)
         # The Nix nextest hook supplies -j for test concurrency. Compilation has
         # its own --build-jobs flag; duplicating --test-threads is a CLI error.

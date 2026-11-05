@@ -18,7 +18,8 @@
       }
     },
     "markers": [
-      "terminal palette refresh did not return default colors"
+      "terminal palette refresh did not return default colors",
+      "reference or reply boundaries changed; composer left unchanged"
     ],
     "release_target": "x86_64-unknown-linux-musl"
   },
@@ -88,7 +89,8 @@
       },
       "patches": [
         "0.166.0/live-palette-refresh.patch",
-        "0.166.0/double-esc-interrupt.patch"
+        "0.166.0/double-esc-interrupt.patch",
+        "0.166.0/external-editor-reference.patch"
       ],
       "cargo_hash": "sha256-3CHn33C1SSX+W0juZik3r8CVoYGoyNlk5mDICwVEcbY="
     }
