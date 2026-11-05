@@ -27,7 +27,7 @@ on:
 
 concurrency:
   group: codex-update
-  # Keep candidate preparation, both builds, and publication in one serialized run.
+  # Keep candidate preparation, the shared build, and publication in one serialized run.
   queue: max
   cancel-in-progress: false
 
@@ -104,10 +104,10 @@ jobs:
           retention-days: 14
 
   nix:
-    name: Build Nix closure
+    name: Build once and prepare both release formats
     needs: prepare
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -131,11 +131,18 @@ jobs:
             system-features = benchmark big-parallel kvm nixos-test codex-artifact-publisher
       - name: Reclaim runner disk space
         run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" bash scripts/reclaim-runner-disk.sh
+      - name: Install runtime isolation tool
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+
+      - name: Add memory headroom for optimized Rust tests
+        run: bash scripts/setup-build-swap.sh
       - name: Run validation suites
         run: |
           python3 tests/source-patcher.py
           python3 tests/manifest.py
           python3 tests/release.py
+          python3 tests/export-native.py
+          python3 tests/release-workflow.py
           python3 tests/rebase-patches.py
           python3 tests/release-client.py
           python3 tests/release-setup.py
@@ -143,14 +150,17 @@ jobs:
           bash tests/update.sh
           bash tests/bundle.sh
           nix flake check --no-build
-      - name: Build and prepare Nix release assets
+      - name: Build, test, and prepare both release formats
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
+          set -euo pipefail
           nix --extra-system-features codex-artifact-publisher build -L .#codex
           test "$(./result/bin/codex --version)" = "codex-cli $VERSION"
           grep -aFqm1 'terminal palette refresh did not return default colors' ./result/bin/codex
           ./result/bin/codex-code-mode-host --help >/dev/null
+          python3 scripts/export-native.py --package result --output-dir "$RUNNER_TEMP/native-assets" --version "$VERSION"
+          sudo bash tests/static-portability.sh result "$RUNNER_TEMP"/native-assets/codex-native-*.tar.gz
           bash scripts/publish-bundle.sh --prepare-dir "$RUNNER_TEMP/nix-assets"
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
@@ -158,87 +168,15 @@ jobs:
           path: ${{ runner.temp }}/nix-assets/*
           retention-days: 14
 
-  native:
-    name: Build static native Linux binaries
-    needs: prepare
-    runs-on: ubuntu-24.04
-    timeout-minutes: 180
-    env:
-      VERSION: ${{ needs.prepare.outputs.version }}
-      CARGO_BUILD_JOBS: 2
-      TERM: xterm-256color
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.prepare.outputs.base }}
-          fetch-depth: 0
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: release-source
-          path: ${{ runner.temp }}/release-source
-      - name: Restore exact candidate commit
-        env:
-          EXPECTED_SHA: ${{ needs.prepare.outputs.sha }}
-        run: |
-          git fetch "$RUNNER_TEMP/release-source/source.bundle" HEAD
-          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
-          git checkout --detach "$EXPECTED_SHA"
-      - name: Reclaim runner disk space
-        run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" bash scripts/reclaim-runner-disk.sh
-      # Same Zig as upstream's musl release builds.
-      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
-        with:
-          version: 0.14.0
-          use-cache: false
-      - name: Install musl toolchain from the pinned upstream source
-        run: bash scripts/setup-musl-toolchain.sh
-      - name: Install nextest
-        run: |
-          curl -fL --retry 3 -o "$RUNNER_TEMP/nextest.tar.gz" https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.146/cargo-nextest-0.9.146-x86_64-unknown-linux-gnu.tar.gz
-          echo '682c21b777c333e96fd532e114d3a5a894e0729ab88d94c0a9f20f8419695428  '"$RUNNER_TEMP/nextest.tar.gz" | sha256sum -c -
-          mkdir -p "$RUNNER_TEMP/nextest"
-          tar -xzf "$RUNNER_TEMP/nextest.tar.gz" -C "$RUNNER_TEMP/nextest" cargo-nextest
-          echo "$RUNNER_TEMP/nextest" >> "$GITHUB_PATH"
-      - name: Build, test patches, and verify static binary pair
-        env:
-          CODEX_PATCH_CACHE: ${{ runner.temp }}/native-cache
-          CODEX_VERIFY_PATCHES: '1'
-        run: |
-          set -euo pipefail
-          unset NO_COLOR TMUX TERM_PROGRAM
-          mkdir -p "$RUNNER_TEMP/codex-home"
-          export CODEX_HOME="$RUNNER_TEMP/codex-home"
-          python3 scripts/install-source-codex.py --build-only --version "$VERSION" --output dist/native.tar.gz
-          mkdir smoke
-          tar -xzf dist/native.tar.gz -C smoke
-          python3 - <<'PYTHON'
-          import hashlib, json
-          from pathlib import Path
-          for name, checksum in json.loads(Path('smoke/sha256.json').read_text()).items():
-              with (Path('smoke') / name).open('rb') as stream:
-                  assert hashlib.file_digest(stream, 'sha256').hexdigest() == checksum
-          PYTHON
-          for binary in smoke/codex smoke/codex-code-mode-host; do
-            file "$binary"
-            # Static: no program interpreter and no shared library dependencies.
-            if readelf -lW "$binary" | grep -q INTERP || readelf -dW "$binary" | grep -q NEEDED; then
-              echo "$binary is dynamically linked" >&2
-              exit 1
-            fi
-          done
-          test "$(smoke/codex --version)" = "codex-cli $VERSION"
-          smoke/codex-code-mode-host --help >/dev/null
-          key=$(python3 -c 'import json; print(json.load(open("smoke/bundle.json"))["key"])')
-          mv dist/native.tar.gz "dist/codex-native-$key-linux-x86_64.tar.gz"
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: release-native
-          path: dist/codex-native-*.tar.gz
+          path: ${{ runner.temp }}/native-assets/codex-native-*.tar.gz
           retention-days: 14
 
   publish:
     name: Publish combined release
-    needs: [prepare, nix, native]
+    needs: [prepare, nix]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     permissions:
@@ -272,7 +210,7 @@ jobs:
         with:
           name: release-native
           path: ${{ runner.temp }}/release-assets
-      - name: Push candidate only after both builds pass
+      - name: Push candidate only after build and verification pass
         if: needs.prepare.outputs.changed == 'true'
         env:
           BASE_SHA: ${{ needs.prepare.outputs.base }}

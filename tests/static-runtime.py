@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run an offline V8 calculation through the 0.163.0 host's stdio protocol.
+"""Run an offline V8 calculation through the host's V1 stdio protocol.
 
 Pass the host command as arguments, optionally preceded by a container launcher.
 This is a runtime smoke check; it does not compile any Rust test binaries.

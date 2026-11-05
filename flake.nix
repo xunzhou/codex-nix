@@ -14,19 +14,13 @@
         system:
         let
           pkgs = import nixpkgs { inherit system; };
-          codex = pkgs.callPackage ./package.nix { };
-          # Experimental portable build; both release formats can share this output.
-          codex-static = (pkgs.pkgsStatic.callPackage ./package.nix { }).overrideAttrs (previous: {
-            # Local experiment only; the default package retains its publisher gate.
+          # One musl build supplies both the Nix closure and native tarball.
+          codex = pkgs.pkgsStatic.callPackage ./package.nix { };
+          # Explicit local development target; publication uses the gated package.
+          codex-static = codex.overrideAttrs {
             requiredSystemFeatures = [ ];
-            OPENSSL_NO_VENDOR = 1;
-            OPENSSL_STATIC = 1;
-            AWS_LC_SYS_NO_JITTER_ENTROPY = 1;
-            buildInputs = previous.buildInputs ++ [
-              (pkgs.pkgsStatic.libcap.override { withGo = false; })
-            ];
             preBuild = ''export NIX_BUILD_CORES=8'';
-          });
+          };
           installer = pkgs.writeShellApplication {
             name = "install-codex-bundle";
             runtimeInputs = [
