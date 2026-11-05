@@ -40,13 +40,14 @@ rustPlatform.buildRustPackage ({
   OPENSSL_NO_VENDOR = 1;
   OPENSSL_STATIC = 1;
   AWS_LC_SYS_NO_JITTER_ENTROPY = 1;
-  # Keep the complete patch regression selection from the former native build.
+  # Keep the patch regressions from the former native build. Escape names must
+  # start a word: a substring also selects descendants/reschedule/coalesces tests.
   doCheck = true;
   useNextest = true;
   cargoTestFlags = [
     "-p" "codex-tui" "--lib" "--build-jobs" "2" "-E"
     # stdenv splits this environment variable on whitespace: keep one token.
-    "test(esc)|test(palette_refresh)|test(hook_status_reflows)|test(running_hooks_fit)|test(compaction_status)|test(usage_notice)"
+    "test(/(^|::|_)esc/)|test(palette_refresh)|test(hook_status_reflows)|test(running_hooks_fit)|test(compaction_status)|test(usage_notice)"
   ];
   preCheck = ''
     unset NO_COLOR TMUX TERM_PROGRAM

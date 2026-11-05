@@ -228,7 +228,9 @@ read -r -a codex_test_flags <<<"$(jq -r \
   '.derivations | to_entries[0].value.env.cargoTestFlags' <<<"$codex_derivation")"
 ((${#codex_test_flags[@]} >= 2)) || fail 'missing patch test flags'
 [[ ${codex_test_flags[-2]} == -E ]] || fail 'nextest filter split across arguments'
-for selector in esc palette_refresh hook_status_reflows running_hooks_fit compaction_status usage_notice; do
+[[ ${codex_test_flags[-1]} == *'test(/(^|::|_)esc/)'* ]] ||
+  fail 'Escape test filter must match a word prefix'
+for selector in palette_refresh hook_status_reflows running_hooks_fit compaction_status usage_notice; do
   [[ ${codex_test_flags[-1]} == *"test($selector)"* ]] || fail "missing nextest selector: $selector"
 done
 
