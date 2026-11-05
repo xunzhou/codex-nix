@@ -1203,12 +1203,10 @@ diff --git a/codex-rs/tui/src/chatwidget/working_directory.rs b/codex-rs/tui/src
 diff --git a/codex-rs/tui/src/chatwidget/tests/slash_commands.rs b/codex-rs/tui/src/chatwidget/tests/slash_commands.rs
 --- a/codex-rs/tui/src/chatwidget/tests/slash_commands.rs
 +++ b/codex-rs/tui/src/chatwidget/tests/slash_commands.rs
-@@ -3894,3 +3894,71 @@
-         assert!(chat.input_queue.queued_user_messages.is_empty());
-     }
+@@ -3896,6 +3896,74 @@
  }
-+
-+#[tokio::test]
+ 
+ #[tokio::test]
 +async fn add_dir_requires_confirmation_and_resolves_relative_paths() {
 +    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(None).await;
 +    let directory = tempfile::tempdir().unwrap();
@@ -1275,6 +1273,11 @@ diff --git a/codex-rs/tui/src/chatwidget/tests/slash_commands.rs b/codex-rs/tui/
 +        assert!(chat.bottom_pane.no_modal_or_popup_active());
 +    }
 +}
++
++#[tokio::test]
+ async fn external_editor_reference_uses_only_active_conversation() {
+     let (mut active, _, _) = make_chatwidget_manual(None).await;
+     let (mut other, _, _) = make_chatwidget_manual(None).await;
 diff --git a/codex-rs/tui/src/app/thread_settings.rs b/codex-rs/tui/src/app/thread_settings.rs
 --- a/codex-rs/tui/src/app/thread_settings.rs
 +++ b/codex-rs/tui/src/app/thread_settings.rs
