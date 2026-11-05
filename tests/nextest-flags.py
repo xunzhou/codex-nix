@@ -14,7 +14,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parent.parent
 SELECTORS = ('esc', 'escape_closes', 'backtrack_esc', 'vim_escape_recovery',
              'palette_refresh', 'hook_status_reflows', 'running_hooks_fit',
-             'compaction_status', 'usage_notice', 'external_editor_reference')
+             'compaction_status', 'usage_notice', 'add_dir_confirmation', 'external_editor_reference')
 
 
 def main():
@@ -27,23 +27,27 @@ def main():
     with tempfile.TemporaryDirectory(prefix='codex-nextest-flags-') as directory:
         fixture = Path(directory)
         (fixture / 'Cargo.toml').write_text(
-            '[package]\nname="codex-tui"\nversion="0.0.0"\nedition="2024"\n'
-            '[lib]\npath="lib.rs"\n'
-            '[workspace]\nmembers=["config"]\n')
-        (fixture / 'config').mkdir()
-        (fixture / 'config/Cargo.toml').write_text(
-            '[package]\nname="codex-config"\nversion="0.0.0"\nedition="2024"\n'
-            '[lib]\npath="lib.rs"\n')
-        (fixture / 'config/lib.rs').write_text(
-            '#[test] fn external_editor_reference_config() {}\n'
-            '#[test] fn unrelated_config() { panic!("unrelated config selected"); }\n')
-        (fixture / 'lib.rs').write_text(''.join(
+            '[workspace]\nmembers=["tui", "core", "config"]\nresolver="2"\n')
+        for name in ('tui', 'core', 'config'):
+            package = fixture / name
+            package.mkdir()
+            (package / 'Cargo.toml').write_text(
+                f'[package]\nname="codex-{name}"\nversion="0.0.0"\nedition="2024"\n'
+                '[lib]\npath="lib.rs"\n')
+        (fixture / 'tui/lib.rs').write_text(''.join(
             f'#[test] fn {name}() {{}}\n' for name in SELECTORS)
             + 'mod nested { #[test] fn escape_closes() {} }\n'
             + ''.join(f'#[test] fn {name}() {{ panic!("unrelated test selected"); }}\n'
                       for name in ('unrelated_should_not_run',
                                    'consumer_roots_include_paginated_archived_descendants_and_keep_missing_usage',
                                    'reschedule_timer', 'coalesces_events')))
+        (fixture / 'config/lib.rs').write_text(
+            '#[test] fn external_editor_reference_config() {}\n'
+            '#[test] fn unrelated_config() { panic!("unrelated config selected"); }\n')
+        (fixture / 'core/lib.rs').write_text(
+            '#[test] fn add_dir_policy() {}\n'
+            '#[test] fn esc_core_unrelated() { panic!("core Escape test selected"); }\n'
+            '#[test] fn usage_notice_core_unrelated() { panic!("core usage test selected"); }\n')
         environment = dict(os.environ, CARGO=shutil.which('cargo'),
                            CARGO_HOME=str(fixture / 'cargo-home'),
                            CARGO_TARGET_DIR=str(fixture / 'target'),
@@ -63,7 +67,7 @@ def main():
         result = subprocess.run(command, cwd=fixture, env=environment,
                                 capture_output=True, text=True)
         output = result.stdout + result.stderr
-        expected = len(SELECTORS) + 2  # Nested Escape plus the config opt-in test.
+        expected = len(SELECTORS) + 3  # Nested Escape, core policy, editor config.
         if result.returncode or not re.search(rf'{expected} tests run:\s+{expected} passed', output):
             raise SystemExit('nextest flag preflight failed:\n' + output)
         print(f'nextest flag preflight: all {expected} selected tests passed; unrelated tests excluded')
