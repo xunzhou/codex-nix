@@ -1,0 +1,820 @@
+diff --git a/codex-rs/config/src/types.rs b/codex-rs/config/src/types.rs
+index 2dbdfe2..1213ca6 100644
+--- a/codex-rs/config/src/types.rs
++++ b/codex-rs/config/src/types.rs
+@@ -826,6 +826,11 @@ pub const DEFAULT_TERMINAL_RESIZE_REFLOW_FALLBACK_MAX_ROWS: usize = 1_000;
+ #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, JsonSchema)]
+ #[schemars(deny_unknown_fields)]
+ pub struct Tui {
++    /// Include the active conversation's last assistant response in Ctrl+G as reference.
++    /// Only the marked reply is returned. Editor history/backups may retain the reference.
++    #[serde(default)]
++    pub external_editor_include_reference: bool,
++
+     #[serde(default, flatten)]
+     pub notification_settings: TuiNotificationSettings,
+ 
+@@ -1194,3 +1199,16 @@ pub struct SandboxWorkspaceWrite {
+ #[cfg(test)]
+ #[path = "types_tests.rs"]
+ mod tests;
++
++#[cfg(test)]
++mod external_editor_reference_tests {
++    use super::Tui;
++
++    #[test]
++    fn external_editor_reference_is_opt_in() {
++        let default: Tui = toml::from_str("").unwrap();
++        assert!(!default.external_editor_include_reference);
++        let enabled: Tui = toml::from_str("external_editor_include_reference = true").unwrap();
++        assert!(enabled.external_editor_include_reference);
++    }
++}
+diff --git a/codex-rs/core/config.schema.json b/codex-rs/core/config.schema.json
+index 4aba1ba..ed2f827 100644
+--- a/codex-rs/core/config.schema.json
++++ b/codex-rs/core/config.schema.json
+@@ -4707,6 +4707,11 @@
+           },
+           "description": "Individual visual effects. Each also requires animations to be enabled."
+         },
++        "external_editor_include_reference": {
++          "default": false,
++          "description": "Include the active conversation's last assistant response in Ctrl+G as reference. Only the marked reply is returned. Editor history/backups may retain the reference.",
++          "type": "boolean"
++        },
+         "fullscreen_transcript": {
+           "default": true,
+           "description": "Own the fullscreen transcript, including scrolling, selection, and search. Defaults to `true`; alternate-screen restrictions take precedence.",
+diff --git a/codex-rs/core/src/config/config_tests.rs b/codex-rs/core/src/config/config_tests.rs
+index aaf2165..05185cc 100644
+--- a/codex-rs/core/src/config/config_tests.rs
++++ b/codex-rs/core/src/config/config_tests.rs
+@@ -1256,6 +1256,7 @@ fn config_toml_deserializes_model_availability_nux() {
+     assert_eq!(
+         cfg.tui.expect("tui config should deserialize"),
+         Tui {
++            external_editor_include_reference: false,
+             notification_settings: TuiNotificationSettings::default(),
+             animations: true,
+             screen_reader_detection_done: None,
+@@ -4468,6 +4469,7 @@ fn tui_config_missing_notifications_field_defaults_to_enabled() {
+     assert_eq!(
+         tui,
+         Tui {
++            external_editor_include_reference: false,
+             notification_settings: TuiNotificationSettings::default(),
+             animations: true,
+             screen_reader_detection_done: None,
+diff --git a/codex-rs/core/src/config/mod.rs b/codex-rs/core/src/config/mod.rs
+index c5ab365..294f5c5 100644
+--- a/codex-rs/core/src/config/mod.rs
++++ b/codex-rs/core/src/config/mod.rs
+@@ -817,6 +817,9 @@ pub struct Config {
+ 
+     /// Start the composer in Vim mode (`Normal`) by default.
+     pub tui_vim_mode_default: bool,
++
++    /// Opt in to reference context in the native external editor.
++    pub tui_external_editor_include_reference: bool,
+     pub tui_question_esc_back: bool,
+ 
+     /// Start the TUI in raw scrollback mode for copy-friendly transcript output.
+@@ -4643,6 +4646,10 @@ impl Config {
+                 .as_ref()
+                 .map(|t| t.model_availability_nux.clone())
+                 .unwrap_or_default(),
++            tui_external_editor_include_reference: cfg
++                .tui
++                .as_ref()
++                .is_some_and(|tui| tui.external_editor_include_reference),
+             tui_question_esc_back: cfg.tui.as_ref().map(|t| t.question_esc_back).unwrap_or(true),
+             tui_vim_mode_default: cfg
+                 .tui
+diff --git a/codex-rs/thread-manager-sample/src/main.rs b/codex-rs/thread-manager-sample/src/main.rs
+index 0d53be0..c1469f1 100644
+--- a/codex-rs/thread-manager-sample/src/main.rs
++++ b/codex-rs/thread-manager-sample/src/main.rs
+@@ -312,6 +312,7 @@ async fn new_config(
+         tui_agents_overview_grouping: Default::default(),
+         tui_resume_cwd: None,
+         tui_vim_mode_default: false,
++        tui_external_editor_include_reference: false,
+         tui_question_esc_back: true,
+         cwd: cwd.clone(),
+         workspace_roots: vec![cwd],
+diff --git a/codex-rs/tui/src/app/input.rs b/codex-rs/tui/src/app/input.rs
+index f1c6dec..c296ce9 100644
+--- a/codex-rs/tui/src/app/input.rs
++++ b/codex-rs/tui/src/app/input.rs
+@@ -295,26 +295,49 @@ impl App {
+         };
+ 
+         let seed = self.chat_widget.composer_text_with_pending();
++        let reference = self
++            .chat_widget
++            .external_editor_reference()
++            .map(str::to_owned);
+         let config = self.chat_widget.config_ref();
++        let include_reference = config.tui_external_editor_include_reference;
+         let file_system_policy = config.permissions.file_system_sandbox_policy();
+         let editor_result = tui
+             .with_restored(tui::TerminalHandoff::KeepScreen, || async {
+-                external_editor::run_editor(
+-                    &seed,
+-                    &editor_cmd,
+-                    config.codex_home.as_path(),
+-                    &file_system_policy,
+-                    config.cwd.as_path(),
+-                )
+-                .await
++                if include_reference {
++                    external_editor::run_editor_with_reference(
++                        &seed,
++                        reference.as_deref(),
++                        &editor_cmd,
++                        config.codex_home.as_path(),
++                        &file_system_policy,
++                        config.cwd.as_path(),
++                    )
++                    .await
++                } else {
++                    external_editor::run_editor(
++                        &seed,
++                        &editor_cmd,
++                        config.codex_home.as_path(),
++                        &file_system_policy,
++                        config.cwd.as_path(),
++                    )
++                    .await
++                }
+             })
+             .await;
+         self.reset_external_editor_state(tui);
+ 
+         match editor_result {
+             Ok(new_text) => {
+-                // Trim trailing whitespace
+-                let cleaned = new_text.trim_end().to_string();
++                // Keep legacy trimming by default; opt-in replies round-trip exactly.
++                // The mutable App is held throughout the editor await, so events cannot
++                // switch threads or submit/replace the originating composer in between.
++                let cleaned = if include_reference {
++                    new_text
++                } else {
++                    new_text.trim_end().to_string()
++                };
+                 self.chat_widget.apply_external_edit(cleaned);
+             }
+             Err(err) => {
+diff --git a/codex-rs/tui/src/app/tests.rs b/codex-rs/tui/src/app/tests.rs
+index 40c30df..b6ef2bd 100644
+--- a/codex-rs/tui/src/app/tests.rs
++++ b/codex-rs/tui/src/app/tests.rs
+@@ -10111,3 +10111,7 @@ mod active_reconnect;
+ #[cfg(unix)]
+ #[path = "tests/navigation_reconnect_tests.rs"]
+ mod navigation_reconnect;
++
++#[cfg(unix)]
++#[path = "tests/external_editor_reference_tests.rs"]
++mod external_editor_reference_tests;
+diff --git a/codex-rs/tui/src/app/tests/external_editor_reference_tests.rs b/codex-rs/tui/src/app/tests/external_editor_reference_tests.rs
+new file mode 100644
+index 0000000..d7c56eb
+--- /dev/null
++++ b/codex-rs/tui/src/app/tests/external_editor_reference_tests.rs
+@@ -0,0 +1,94 @@
++//! Exercise the actual App launch/return path with an owned synthetic editor process.
++use super::*;
++use crate::chatwidget::ReplayKind;
++use crate::chatwidget::tests::helpers::enable_external_editor_reference;
++use crate::chatwidget::tests::helpers::replay_agent_message;
++use pretty_assertions::assert_eq;
++
++struct RestoreVisual(Option<std::ffi::OsString>);
++impl Drop for RestoreVisual {
++    fn drop(&mut self) {
++        match self.0.take() {
++            Some(value) => unsafe { std::env::set_var("VISUAL", value) },
++            None => unsafe { std::env::remove_var("VISUAL") },
++        }
++    }
++}
++
++#[tokio::test]
++#[serial_test::serial]
++async fn external_editor_reference_app_returns_only_unsent_reply_and_recovers_failure() -> Result<()>
++{
++    let (mut app, mut events, mut operations) = make_test_app_with_channels().await;
++    enable_external_editor_reference(&mut app.chat_widget);
++    app.chat_widget
++        .set_permission_profile_from_session_snapshot(PermissionProfileSnapshot::legacy(
++            PermissionProfile::read_only(),
++        ))?;
++    replay_agent_message(
++        &mut app.chat_widget,
++        "questions",
++        "Which color?\nWhich size?",
++        ReplayKind::ThreadSnapshot,
++    );
++    let origin = app.chat_widget.thread_id();
++    let home = app.chat_widget.config_ref().codex_home.clone();
++    let script = home.join("synthetic-editor.sh");
++    std::fs::write(
++        &script,
++        r##"set -eu
++grep -q 'Which color?' "$1"
++grep -q 'Which size?' "$1"
++awk '
++/^<!-- BEGIN REPLY / { print; printf "blue\nlarge  "; skip=1; next }
++/^<!-- END REPLY / { printf "\n"; skip=0 }
++!skip { print }
++' "$1" > "$1.new"
++mv "$1.new" "$1"
++"##,
++    )?;
++    let _restore = RestoreVisual(std::env::var_os("VISUAL"));
++    // The command uses the native resolver; no editor or owner settings are changed.
++    unsafe {
++        std::env::set_var(
++            "VISUAL",
++            format!("sh {}", shlex::try_quote(script.to_str().unwrap()).unwrap()),
++        )
++    };
++    let mut tui = crate::tui::test_support::make_test_tui()?;
++    app.chat_widget.apply_external_edit("existing draft".into());
++    while operations.try_recv().is_ok() {}
++    app.launch_external_editor(&mut tui).await;
++    assert_eq!(
++        app.chat_widget.composer_text_with_pending(),
++        "blue\nlarge  "
++    );
++    assert_eq!(app.chat_widget.thread_id(), origin);
++    assert!(
++        operations.try_recv().is_err(),
++        "editor must never submit a turn"
++    );
++
++    // A missing boundary must not import any part of the editor document.
++    std::fs::write(&script, "printf 'recoverable edit' > \"$1\"\n")?;
++    while events.try_recv().is_ok() {}
++    app.launch_external_editor(&mut tui).await;
++    assert_eq!(
++        app.chat_widget.composer_text_with_pending(),
++        "blue\nlarge  "
++    );
++    assert!(operations.try_recv().is_err());
++    let retained = std::fs::read_dir(home.join("editor"))?
++        .next()
++        .expect("retained buffer")?
++        .path();
++    assert_eq!(std::fs::read_to_string(&retained)?, "recoverable edit");
++    assert!(
++        std::iter::from_fn(|| events.try_recv().ok()).any(|event| match event {
++            AppEvent::InsertHistoryCell(cell) => lines_to_single_string(&cell.display_lines(500))
++                .contains(retained.to_str().unwrap()),
++            _ => false,
++        })
++    );
++    Ok(())
++}
+diff --git a/codex-rs/tui/src/chatwidget/interaction.rs b/codex-rs/tui/src/chatwidget/interaction.rs
+index ab43a22..b7c3c9a 100644
+--- a/codex-rs/tui/src/chatwidget/interaction.rs
++++ b/codex-rs/tui/src/chatwidget/interaction.rs
+@@ -332,6 +332,14 @@ impl ChatWidget {
+         self.request_redraw();
+     }
+ 
++    /// The clipboard response cache is local to this widget and reset on thread changes/replay.
++    pub(crate) fn external_editor_reference(&self) -> Option<&str> {
++        if !self.config.tui_external_editor_include_reference {
++            return None;
++        }
++        self.last_agent_markdown_text().filter(|text| !text.is_empty())
++    }
++
+     pub(crate) fn external_editor_state(&self) -> ExternalEditorState {
+         self.external_editor_state
+     }
+@@ -444,7 +452,6 @@ impl ChatWidget {
+         self.request_redraw();
+     }
+ 
+-    #[cfg(test)]
+     pub(crate) fn last_agent_markdown_text(&self) -> Option<&str> {
+         self.transcript.last_agent_markdown.as_deref()
+     }
+diff --git a/codex-rs/tui/src/chatwidget/tests/helpers.rs b/codex-rs/tui/src/chatwidget/tests/helpers.rs
+index 9ce2635..1778f79 100644
+--- a/codex-rs/tui/src/chatwidget/tests/helpers.rs
++++ b/codex-rs/tui/src/chatwidget/tests/helpers.rs
+@@ -902,7 +902,7 @@ pub(super) fn replay_user_message_text(
+     );
+ }
+ 
+-pub(super) fn replay_agent_message(
++pub(crate) fn replay_agent_message(
+     chat: &mut ChatWidget,
+     item_id: &str,
+     text: impl Into<String>,
+@@ -1846,3 +1846,8 @@ pub(crate) fn normalize_completion_timestamps(
+         })
+         .into_owned()
+ }
++
++/// Set the opt-in on a synthetic widget without changing owner configuration.
++pub(crate) fn enable_external_editor_reference(chat: &mut ChatWidget) {
++    chat.config.tui_external_editor_include_reference = true;
++}
+diff --git a/codex-rs/tui/src/chatwidget/tests/slash_commands.rs b/codex-rs/tui/src/chatwidget/tests/slash_commands.rs
+index 9fdc308..ffc5684 100644
+--- a/codex-rs/tui/src/chatwidget/tests/slash_commands.rs
++++ b/codex-rs/tui/src/chatwidget/tests/slash_commands.rs
+@@ -3882,3 +3882,23 @@ async fn owned_copy_guard_defers_queued_input_until_released() {
+         assert!(chat.input_queue.queued_user_messages.is_empty());
+     }
+ }
++
++#[tokio::test]
++async fn external_editor_reference_uses_only_active_conversation() {
++    let (mut active, _, _) = make_chatwidget_manual(None).await;
++    let (mut other, _, _) = make_chatwidget_manual(None).await;
++    active.config.tui_external_editor_include_reference = true;
++    other.config.tui_external_editor_include_reference = true;
++    assert_eq!(active.external_editor_reference(), None);
++    replay_agent_message(&mut active, "message-a", "Which color?", ReplayKind::ResumeInitialMessages);
++    replay_agent_message(&mut other, "message-b", "Other conversation", ReplayKind::ResumeInitialMessages);
++    assert_eq!(active.external_editor_reference(), Some("Which color?"));
++    assert_eq!(other.external_editor_reference(), Some("Other conversation"));
++    replay_agent_message(&mut active, "message-c", "Which size?", ReplayKind::ResumeInitialMessages);
++    assert_eq!(active.external_editor_reference(), Some("Which size?"));
++    active.config.tui_external_editor_include_reference = false;
++    assert_eq!(active.external_editor_reference(), None);
++    active.config.tui_external_editor_include_reference = true;
++    active.transcript.reset_copy_history();
++    assert_eq!(active.external_editor_reference(), None);
++}
+diff --git a/codex-rs/tui/src/external_editor.rs b/codex-rs/tui/src/external_editor.rs
+index 583beb3..e86893e 100644
+--- a/codex-rs/tui/src/external_editor.rs
++++ b/codex-rs/tui/src/external_editor.rs
+@@ -15,6 +15,9 @@ use tempfile::Builder;
+ use thiserror::Error;
+ use tokio::process::Command;
+ 
++#[path = "external_editor_reference.rs"]
++mod reference;
++
+ #[derive(Debug, Error)]
+ pub(crate) enum EditorError {
+     #[error("neither VISUAL nor EDITOR is set")]
+@@ -177,10 +180,62 @@ pub(crate) async fn run_editor(
+     codex_home: &Path,
+     file_system_policy: &FileSystemSandboxPolicy,
+     cwd: &Path,
++) -> Result<String> {
++    run_editor_impl(
++        seed,
++        None,
++        false,
++        editor_cmd,
++        codex_home,
++        file_system_policy,
++        cwd,
++    )
++    .await
++}
++
++/// Reference framing is opt-in; all command resolution and directory policy remain native.
++/// Keep failed buffers for manual recovery instead of importing ambiguous reference material.
++pub(crate) async fn run_editor_with_reference(
++    seed: &str,
++    reference: Option<&str>,
++    editor_cmd: &[String],
++    codex_home: &Path,
++    file_system_policy: &FileSystemSandboxPolicy,
++    cwd: &Path,
++) -> Result<String> {
++    run_editor_impl(
++        seed,
++        reference,
++        true,
++        editor_cmd,
++        codex_home,
++        file_system_policy,
++        cwd,
++    )
++    .await
++}
++
++async fn run_editor_impl(
++    seed: &str,
++    reference: Option<&str>,
++    retain_failed_buffer: bool,
++    editor_cmd: &[String],
++    codex_home: &Path,
++    file_system_policy: &FileSystemSandboxPolicy,
++    cwd: &Path,
+ ) -> Result<String> {
+     if editor_cmd.is_empty() {
+         return Err(Report::msg("editor command is empty"));
+     }
++    let document = reference.filter(|text| !text.is_empty()).map(|text| {
++        let mut id = uuid::Uuid::new_v4().to_string();
++        while seed.contains(&id) || text.contains(&id) {
++            id = uuid::Uuid::new_v4().to_string();
++        }
++        reference::ReferenceDocument::new(text, id)
++    });
++    let editor_seed = document.as_ref().map(|doc| doc.render(seed));
++    let editor_seed = editor_seed.as_deref().unwrap_or(seed);
+ 
+     let default_codex_home = dirs::home_dir().map(|home| home.join(".codex"));
+     #[cfg(any(target_os = "macos", target_os = "linux"))]
+@@ -197,7 +252,7 @@ pub(crate) async fn run_editor(
+         .suffix(".md")
+         .tempfile_in(editor_directory)?
+         .into_temp_path();
+-    fs::write(&temp_path, seed)?;
++    fs::write(&temp_path, editor_seed)?;
+ 
+     let mut cmd = {
+         #[cfg(windows)]
+@@ -213,20 +268,52 @@ pub(crate) async fn run_editor(
+     if editor_cmd.len() > 1 {
+         cmd.args(&editor_cmd[1..]);
+     }
+-    let status = cmd
+-        .arg(&temp_path)
+-        .stdin(Stdio::inherit())
+-        .stdout(Stdio::inherit())
+-        .stderr(Stdio::inherit())
+-        .status()
+-        .await?;
++    let outcome: Result<String> = async {
++        let status = cmd
++            .arg(&temp_path)
++            .stdin(Stdio::inherit())
++            .stdout(Stdio::inherit())
++            .stderr(Stdio::inherit())
++            .status()
++            .await?;
++
++        if !status.success() {
++            return Err(Report::msg(format!("editor exited with status {status}")));
++        }
+ 
+-    if !status.success() {
+-        return Err(Report::msg(format!("editor exited with status {status}")));
++        let contents = fs::read_to_string(&temp_path)?;
++        match &document {
++            Some(doc) => doc
++                .extract(&contents)
++                .map(str::to_owned)
++                .map_err(Report::msg),
++            None => Ok(contents),
++        }
++    }
++    .await;
++    match outcome {
++        Ok(reply) => Ok(reply),
++        Err(error) if retain_failed_buffer => Err(preserve_editor_buffer(temp_path, error)),
++        Err(error) => Err(error),
+     }
++}
+ 
+-    let contents = fs::read_to_string(&temp_path)?;
+-    Ok(contents)
++fn preserve_editor_buffer(mut path: tempfile::TempPath, error: Report) -> Report {
++    // Do not rename/copy: editors may have atomically replaced the original file.
++    // Disabling cleanup also avoids deleting recoverable edits if persistence fails.
++    path.disable_cleanup(true);
++    if path.exists() {
++        Report::msg(format!(
++            "{error}; composer left unchanged. Editor buffer retained for manual recovery at {}. \
++             It may contain assistant reference text; copy only your reply and remove it when finished.",
++            path.display()
++        ))
++    } else {
++        Report::msg(format!(
++            "{error}; composer left unchanged. Editor buffer is unavailable at {}.",
++            path.display()
++        ))
++    }
+ }
+ 
+ #[cfg(test)]
+diff --git a/codex-rs/tui/src/external_editor_reference.rs b/codex-rs/tui/src/external_editor_reference.rs
+new file mode 100644
+index 0000000..d6341d5
+--- /dev/null
++++ b/codex-rs/tui/src/external_editor_reference.rs
+@@ -0,0 +1,91 @@
++//! Strict framing for reference-only editor context. No heuristic recovery into the composer.
++
++pub(super) struct ReferenceDocument {
++    prefix: String,
++    suffix: String,
++    id: String,
++}
++
++impl ReferenceDocument {
++    pub(super) fn new(reference: &str, id: String) -> Self {
++        Self {
++            prefix: format!(
++                "# Codex assistant reference — NOT part of your reply\n\n\
++                 Leave this reference and both reply markers unchanged.\n\
++                 Edit only between BEGIN REPLY and END REPLY.\n\
++                 Your editor may retain reference copies in history or backups.\n\n\
++                 {reference}\n\n<!-- BEGIN REPLY {id} -->\n"
++            ),
++            suffix: format!("\n<!-- END REPLY {id} -->\n"),
++            id,
++        }
++    }
++
++    pub(super) fn render(&self, draft: &str) -> String {
++        format!("{}{draft}{}", self.prefix, self.suffix)
++    }
++
++    pub(super) fn extract<'a>(&self, edited: &'a str) -> Result<&'a str, &'static str> {
++        let reply = edited
++            .strip_prefix(&self.prefix)
++            .and_then(|text| text.strip_suffix(&self.suffix))
++            .ok_or("reference or reply boundaries changed; composer left unchanged")?;
++        if reply.contains(&self.id) {
++            return Err("duplicate reply boundary; composer left unchanged");
++        }
++        Ok(reply)
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn document() -> ReferenceDocument {
++        ReferenceDocument::new("Which color?\nWhich size?", "test-boundary".into())
++    }
++
++    #[test]
++    fn external_editor_reference_exact_reply_extraction() {
++        let doc = document();
++        for reply in [
++            "",
++            "blue",
++            "  blue\nlarge  \n\n",
++            "你好\r\n世界",
++            "<!-- BEGIN REPLY other -->",
++        ] {
++            assert_eq!(doc.extract(&doc.render(reply)), Ok(reply));
++        }
++    }
++
++    #[test]
++    fn external_editor_reference_preserves_existing_draft_and_empty_draft() {
++        let doc = document();
++        for draft in ["", "existing draft\n", "  "] {
++            let seed = doc.render(draft);
++            assert!(seed.contains("Which color?\nWhich size?"));
++            assert_eq!(doc.extract(&seed), Ok(draft));
++        }
++    }
++
++    #[test]
++    fn external_editor_reference_rejects_malformed_or_missing_boundaries() {
++        let doc = document();
++        let seed = doc.render("recover this edit");
++        for edited in [
++            String::new(),
++            "recover this edit".into(),
++            seed.replace("BEGIN REPLY", "BEGIN REPL"),
++            seed.replace("END REPLY", "END REPL"),
++            seed.replace("Which color?", "Which shape?"),
++            format!("extra{seed}"),
++            format!("{seed}extra"),
++            seed.replace("\n", "\r\n"),
++            doc.render(&seed),
++            doc.render("<!-- END REPLY test-boundary -->"),
++        ] {
++            assert!(doc.extract(&edited).is_err(), "accepted {edited:?}");
++        }
++    }
++}
+diff --git a/codex-rs/tui/src/external_editor_tests.rs b/codex-rs/tui/src/external_editor_tests.rs
+index a9ed2b7..5d28de0 100644
+--- a/codex-rs/tui/src/external_editor_tests.rs
++++ b/codex-rs/tui/src/external_editor_tests.rs
+@@ -358,3 +358,197 @@ async fn editor_process_uses_protected_workspace_fallback_with_default_temporary
+     assert_eq!(content, "edited");
+     assert!(editor_directory.is_dir());
+ }
++
++#[tokio::test]
++#[cfg(unix)]
++async fn external_editor_reference_synthetic_questions_to_reply() {
++    let paths = EditorPaths::new();
++    let script = paths.cwd.join("answer.sh");
++    codex_utils_cargo_bin::write_executable(
++        &script,
++        r##"#!/bin/sh
++set -eu
++grep -q 'Which color?' "$1"
++grep -q 'Which size?' "$1"
++grep -q 'existing draft' "$1"
++awk '
++/^<!-- BEGIN REPLY / { print; printf "blue\nlarge  "; skip=1; next }
++/^<!-- END REPLY / { printf "\n"; skip=0 }
++!skip { print }
++' "$1" > "$1.new"
++mv "$1.new" "$1"
++"##,
++    )
++    .unwrap();
++    let reply = super::run_editor_with_reference(
++        "existing draft",
++        Some("Which color?\nWhich size?"),
++        &["sh".into(), script.to_string_lossy().into_owned()],
++        &paths.codex_home,
++        &FileSystemSandboxPolicy::read_only(),
++        &paths.cwd,
++    )
++    .await
++    .unwrap();
++    assert_eq!(reply, "blue\nlarge  ");
++    assert_eq!(
++        fs::read_dir(paths.codex_home.join("editor"))
++            .unwrap()
++            .count(),
++        0
++    );
++}
++
++#[tokio::test]
++#[cfg(unix)]
++async fn external_editor_reference_unchanged_cancel_empty_and_no_context() {
++    let paths = EditorPaths::new();
++    let cmd = vec!["sh".into(), "-c".into(), "exit 0".into()];
++    for reference in [None, Some(""), Some("Which color?")] {
++        for draft in ["", "existing draft  \n"] {
++            let reply = super::run_editor_with_reference(
++                draft,
++                reference,
++                &cmd,
++                &paths.codex_home,
++                &FileSystemSandboxPolicy::read_only(),
++                &paths.cwd,
++            )
++            .await
++            .unwrap();
++            assert_eq!(reply, draft);
++        }
++    }
++}
++
++#[tokio::test]
++#[cfg(unix)]
++async fn external_editor_reference_failure_and_malformed_buffers_are_retained() {
++    for command in [
++        "printf 'recoverable edits' >> \"$1\"; exit 1",
++        "printf 'recoverable edits' > \"$1\"",
++        "printf 'recoverable edits' >> \"$1\"; kill -TERM $$",
++    ] {
++        let paths = EditorPaths::new();
++        let cmd = vec!["sh".into(), "-c".into(), command.into(), "editor".into()];
++        let error = super::run_editor_with_reference(
++            "original draft",
++            Some("Which color?"),
++            &cmd,
++            &paths.codex_home,
++            &FileSystemSandboxPolicy::read_only(),
++            &paths.cwd,
++        )
++        .await
++        .unwrap_err()
++        .to_string();
++        let retained = fs::read_dir(paths.codex_home.join("editor"))
++            .unwrap()
++            .map(|entry| entry.unwrap().path())
++            .collect::<Vec<_>>();
++        assert_eq!(retained.len(), 1);
++        assert!(error.contains("composer left unchanged"));
++        assert!(error.contains(retained[0].to_str().unwrap()));
++        assert!(
++            fs::read_to_string(&retained[0])
++                .unwrap()
++                .contains("recoverable edits")
++        );
++    }
++}
++
++#[tokio::test]
++#[cfg(unix)]
++async fn external_editor_reference_spawn_failure_keeps_original_buffer() {
++    let paths = EditorPaths::new();
++    let cmd = vec![
++        paths
++            .cwd
++            .join("missing-editor")
++            .to_string_lossy()
++            .into_owned(),
++    ];
++    let error = super::run_editor_with_reference(
++        "original draft",
++        Some("Which color?"),
++        &cmd,
++        &paths.codex_home,
++        &FileSystemSandboxPolicy::read_only(),
++        &paths.cwd,
++    )
++    .await
++    .unwrap_err()
++    .to_string();
++    let retained = fs::read_dir(paths.codex_home.join("editor"))
++        .unwrap()
++        .next()
++        .unwrap()
++        .unwrap()
++        .path();
++    assert!(error.contains(retained.to_str().unwrap()));
++    let buffer = fs::read_to_string(retained).unwrap();
++    assert!(buffer.contains("original draft"));
++    assert!(buffer.contains("Which color?"));
++}
++
++#[tokio::test]
++#[cfg(unix)]
++async fn external_editor_reference_can_clear_a_nonempty_draft() {
++    let paths = EditorPaths::new();
++    let cmd = vec![
++        "sh".into(),
++        "-c".into(),
++        r#"
++awk '
++/^<!-- BEGIN REPLY / { print; skip=1; next }
++/^<!-- END REPLY / { print ""; skip=0 }
++!skip { print }
++' "$1" > "$1.new"
++mv "$1.new" "$1"
++"#
++        .into(),
++        "editor".into(),
++    ];
++    let reply = super::run_editor_with_reference(
++        "original draft",
++        Some("Which color?"),
++        &cmd,
++        &paths.codex_home,
++        &FileSystemSandboxPolicy::read_only(),
++        &paths.cwd,
++    )
++    .await
++    .unwrap();
++    assert_eq!(reply, "");
++}
++
++#[tokio::test]
++#[cfg(unix)]
++async fn external_editor_reference_deleted_buffer_reports_unavailable() {
++    let paths = EditorPaths::new();
++    let cmd = vec![
++        "sh".into(),
++        "-c".into(),
++        "unlink -- \"$1\"".into(),
++        "editor".into(),
++    ];
++    let error = super::run_editor_with_reference(
++        "original draft",
++        Some("Which color?"),
++        &cmd,
++        &paths.codex_home,
++        &FileSystemSandboxPolicy::read_only(),
++        &paths.cwd,
++    )
++    .await
++    .unwrap_err()
++    .to_string();
++    assert!(error.contains("composer left unchanged"));
++    assert!(error.contains("buffer is unavailable"));
++    assert_eq!(
++        fs::read_dir(paths.codex_home.join("editor"))
++            .unwrap()
++            .count(),
++        0
++    );
++}
+diff --git a/codex-rs/tui/src/local_settings.rs b/codex-rs/tui/src/local_settings.rs
+index a9bed99..bc0b025 100644
+--- a/codex-rs/tui/src/local_settings.rs
++++ b/codex-rs/tui/src/local_settings.rs
+@@ -56,6 +56,7 @@ impl LocalSettings {
+                 config.tui_alternate_screen != codex_config::types::AltScreenMode::Never,
+             ),
+             tui: Tui {
++                external_editor_include_reference: config.tui_external_editor_include_reference,
+                 notification_settings: config.tui_notifications.clone(),
+                 animations: config.animations,
+                 screen_reader_detection_done: None,

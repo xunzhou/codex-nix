@@ -1,10 +1,12 @@
 # Patched Codex
 
-Codex with two small changes:
+Codex with three small changes:
 
 - **Live terminal colors:** refresh the palette without restarting Codex.
 - **Double Escape to interrupt:** press Escape twice within 400 ms to stop a turn.
   Menus, Vim mode, and Ctrl-C keep their usual behavior.
+- **Optional editor reference:** Ctrl+G can include the active conversation’s last
+  assistant response above your editable reply.
 
 ## Download or install
 
@@ -69,3 +71,40 @@ patch behavior tests remain required before publication.
 but this updater creates a fresh temporary repository on every run. Using rerere
 would require a persistent, reviewed resolution cache; enabling it alone would
 not help the current workflow.
+
+## Ctrl+G with assistant reference
+
+The 0.163.0 recipe also includes an opt-in native editor extension. In `config.toml`:
+
+```toml
+[tui]
+external_editor_include_reference = true
+```
+
+Or start the patched build with
+`codex -c tui.external_editor_include_reference=true`. Existing `VISUAL`/`EDITOR`
+configuration is reused, including its wait-for-close option (for example, Zed's
+`--wait`). This setting does not configure or install an editor.
+
+Ctrl+G opens the current draft below the active conversation's last completed
+assistant response, using the same response cache as Codex's copy-response action.
+The reference is labeled **NOT part of your reply**. Edit only between the unique
+`BEGIN REPLY` and `END REPLY` markers. Closing successfully returns only that
+reply, with whitespace preserved, to the originating unsent composer. It does
+not submit. Existing drafts are included; with no prior response the document
+contains just the draft. An empty reply clears the draft.
+
+Keep the reference and both markers unchanged. If framing is missing, duplicated,
+or changed (including line-ending conversion), Codex keeps the original composer,
+reports an error, and retains the complete editor file at the reported path for
+manual recovery. Copy only your reply from it. Failed or cancelled editor
+processes also retain their file; a deleted file cannot be recovered. Quitting
+without saving leaves the draft unchanged when the editor exits successfully.
+
+The setting defaults to false, preserving the usual composer-only editor flow.
+Successful temporary files are removed through the native flow; failed files
+need manual removal. Editor history, backups, swap files, and sync services may
+keep copies of assistant reference text. This feature does not delete those
+copies or promise automatic deletion.
+
+See [source and validation details](tests/external-editor-reference-validation.md).

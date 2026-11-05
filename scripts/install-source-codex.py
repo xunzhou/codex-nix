@@ -372,9 +372,9 @@ def main():
                 run(cargo, "metadata", "--locked", "--no-deps", "--format-version", "1", cwd=source / "codex-rs", env=env, stdout=subprocess.DEVNULL)
                 run(cargo, "build", "--release", "--locked", *[flag for name in binaries for flag in ("-p", spec["binaries"][name]["package"])], cwd=source / "codex-rs", env=env)
                 if os.environ.get("CODEX_VERIFY_PATCHES") == "1":
-                    run(cargo, "nextest", "run", "--release", "--locked", "-p", "codex-tui",
+                    run(cargo, "nextest", "run", "--release", "--locked", "-p", "codex-tui", "-p", "codex-config",
                         "--lib", "--test-threads=2", "-E",
-                        "test(esc) | test(palette_refresh) | test(hook_status_reflows) | test(running_hooks_fit) | test(compaction_status) | test(usage_notice)",
+                        "test(esc) | test(palette_refresh) | test(hook_status_reflows) | test(running_hooks_fit) | test(compaction_status) | test(usage_notice) | test(external_editor)",
                         cwd=source / "codex-rs", env=env)
                 with tempfile.TemporaryDirectory(prefix="bundle-", dir=cache) as pending:
                     pending = Path(pending)

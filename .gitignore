@@ -2,3 +2,4 @@
 /.worktrees/
 __pycache__/
 /.native-cache/
+/.scratch/

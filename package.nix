@@ -35,7 +35,12 @@ rustPlatform.buildRustPackage ({
     export NIX_BUILD_CORES=2
   '';
   requiredSystemFeatures = [ "codex-artifact-publisher" ];
-  doCheck = false;
+  # Run the native editor framing, recovery, context, and config regressions.
+  doCheck = true;
+  preCheck = ''
+    export RUST_MIN_STACK=16777216
+  '';
+  cargoTestFlags = [ "-p" "codex-tui" "-p" "codex-config" "--lib" "external_editor_reference" ];
   nativeBuildInputs = [ pkg-config ];
   buildInputs = [ openssl ];
   installPhase = ''
