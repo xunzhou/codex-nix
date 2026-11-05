@@ -637,7 +637,7 @@ diff --git a/codex-rs/app-server/src/request_processors/turn_processor.rs b/code
 diff --git a/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs b/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs
 --- a/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs
 +++ b/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs
-@@ -774,3 +774,174 @@
+@@ -774,3 +774,319 @@
      }
      Ok(())
  }
@@ -706,8 +706,11 @@ diff --git a/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs b/code
 +        std::fs::read(home.path().join("config.toml"))?,
 +        config_before
 +    );
++    let mut client_roots = started.runtime_workspace_roots.clone();
++    client_roots.push(root.clone());
 +    mcp.start_turn_and_wait_for_completion(TurnStartParams {
 +        thread_id: id.clone(),
++        runtime_workspace_roots: Some(client_roots),
 +        input: vec![V2UserInput::Text {
 +            text: "use the grant".to_string(),
 +            text_elements: vec![],
@@ -812,6 +815,148 @@ diff --git a/codex-rs/app-server/tests/suite/v2/thread_settings_update.rs b/code
 +    assert!(received_response_bodies(&model).await?.is_empty());
 +    Ok(())
 +}
++
++// This must exercise the OS sandbox, not just the permission evaluator: the TUI
++// supplies its cached runtime roots on every turn, including the first after a grant.
++#[cfg(unix)]
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn add_dir_grant_allows_sandbox_write_with_next_turn_client_overrides() -> Result<()> {
++    use codex_features::Feature;
++    use codex_utils_absolute_path::AbsolutePathBuf;
++
++    let server = responses::start_mock_server().await;
++    let home = TempDir::new()?;
++    let extra = TempDir::new()?;
++    let unrelated = TempDir::new()?;
++    let root = AbsolutePathBuf::from_absolute_path(extra.path().canonicalize()?)?;
++    std::fs::create_dir(extra.path().join(".git"))?;
++    MockResponsesConfig::new(&server.uri())
++        .with_sandbox_mode("workspace-write")
++        .with_approval_policy("never")
++        .enable_feature(Feature::UnifiedExec)
++        .disable_feature(Feature::ShellSnapshot)
++        .disable_feature(Feature::CodeMode)
++        .with_extra_config(
++            "[sandbox_workspace_write]\nexclude_slash_tmp = true\nexclude_tmpdir_env_var = true",
++        )
++        .write(home.path())?;
++    let mut app = TestAppServer::builder()
++        .with_codex_home(home.path())
++        .build_initialized()
++        .await?;
++    let started = app.start_thread(ThreadStartParams::default()).await?;
++    let mut roots = started.runtime_workspace_roots.clone();
++    for (index, command, expected_exit) in [
++        (
++            0,
++            format!("printf probe > '{}'", extra.path().join("probe").display()),
++            1,
++        ),
++        (
++            1,
++            format!("printf probe > '{}'", extra.path().join("probe").display()),
++            0,
++        ),
++        (
++            2,
++            format!(
++                "printf blocked > '{}'",
++                extra.path().join(".git/probe").display()
++            ),
++            1,
++        ),
++        (
++            3,
++            format!(
++                "printf blocked > '{}'",
++                unrelated.path().join("probe").display()
++            ),
++            1,
++        ),
++    ] {
++        if index == 1 {
++            let response: ThreadSettingsUpdateResponse = app
++                .request(|request_id| ClientRequest::ThreadSettingsUpdate {
++                    request_id,
++                    params: ThreadSettingsUpdateParams {
++                        thread_id: started.thread.id.clone(),
++                        add_writable_root: Some(root.clone()),
++                        ..Default::default()
++                    },
++                })
++                .await?;
++            assert_eq!(response.granted_writable_root.as_ref(), Some(&root));
++            // Same cache adoption as the TUI after server acknowledgement.
++            roots.push(root.clone());
++        }
++        let call_id = format!("probe-{index}");
++        responses::mount_sse_once(
++            &server,
++            responses::sse(vec![
++                responses::ev_response_created("command"),
++                responses::ev_function_call(
++                    &call_id,
++                    "exec_command",
++                    &json!({"cmd": command, "yield_time_ms": 1000}).to_string(),
++                ),
++                responses::ev_completed("command"),
++            ]),
++        )
++        .await;
++        let continuation = responses::mount_sse_once(
++            &server,
++            create_final_assistant_message_sse_response("done")?,
++        )
++        .await;
++        app.start_turn_and_wait_for_completion(TurnStartParams {
++            thread_id: started.thread.id.clone(),
++            // Reproduce client-owned local TUI settings rather than a bare API turn.
++            cwd: Some(started.cwd.to_path_buf()),
++            runtime_workspace_roots: Some(roots.clone()),
++            sandbox_policy: Some(started.sandbox.clone()),
++            approval_policy: Some(AskForApproval::Never),
++            input: vec![V2UserInput::Text {
++                text: "Run the write probe".into(),
++                text_elements: vec![],
++            }],
++            ..Default::default()
++        })
++        .await?;
++        let request = continuation.single_request();
++        let output = request
++            .function_call_output_text(&call_id)
++            .context("model must receive sandbox command result")?;
++        if index == 1 {
++            let body = request.body_json();
++            let environment = body["input"]
++                .as_array()
++                .unwrap()
++                .iter()
++                .flat_map(|item| item["content"].as_array().into_iter().flatten())
++                .filter_map(|item| item["text"].as_str())
++                .filter(|text| text.contains("<environment_context>"))
++                .last()
++                .context("next turn must refresh model environment")?;
++            assert!(environment.contains(&format!(
++                "<entry access=\"write\"><path>{}</path>",
++                root.display()
++            )));
++        }
++        assert!(
++            output.contains(&format!("Process exited with code {expected_exit}")),
++            "{output}"
++        );
++        assert_eq!(extra.path().join("probe").exists(), index > 0);
++        assert!(!extra.path().join(".git/probe").exists());
++        assert!(!unrelated.path().join("probe").exists());
++    }
++    assert_eq!(
++        std::fs::read_to_string(extra.path().join("probe"))?,
++        "probe"
++    );
++    app.shutdown_gracefully().await?;
++    Ok(())
++}
 diff --git a/codex-rs/tui/src/app_server_session.rs b/codex-rs/tui/src/app_server_session.rs
 --- a/codex-rs/tui/src/app_server_session.rs
 +++ b/codex-rs/tui/src/app_server_session.rs
@@ -892,7 +1037,7 @@ diff --git a/codex-rs/tui/src/app_event.rs b/codex-rs/tui/src/app_event.rs
 diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event_dispatch.rs
 --- a/codex-rs/tui/src/app/event_dispatch.rs
 +++ b/codex-rs/tui/src/app/event_dispatch.rs
-@@ -279,6 +279,35 @@
+@@ -279,6 +279,38 @@
                      root.display()
                  )),
              },
@@ -914,10 +1059,13 @@ diff --git a/codex-rs/tui/src/app/event_dispatch.rs b/codex-rs/tui/src/app/event
 +                        ..Default::default()
 +                    };
 +                    match app_server.thread_settings_update(params).await {
-+                        Ok(true) => self.chat_widget.add_info_message(
-+                            format!("Directory granted for this conversation: {}", root.display()),
-+                            Some("Applies from the next turn. Not saved for future session runtimes. Already-running processes retain their original sandbox permissions.".to_string()),
-+                        ),
++                        Ok(true) => {
++                            self.apply_confirmed_writable_root(thread_id, &root).await;
++                            self.chat_widget.add_info_message(
++                                format!("Directory granted for this conversation: {}", root.display()),
++                                Some("Applies from the next turn. Not saved for future session runtimes. Already-running processes retain their original sandbox permissions.".to_string()),
++                            );
++                        },
 +                        Ok(false) => self.chat_widget.add_error_message(
 +                            "This server does not support runtime directory grants.".to_string(),
 +                        ),
@@ -958,12 +1106,21 @@ diff --git a/codex-rs/tui/src/chatwidget/slash_dispatch.rs b/codex-rs/tui/src/ch
 diff --git a/codex-rs/tui/src/chatwidget/working_directory.rs b/codex-rs/tui/src/chatwidget/working_directory.rs
 --- a/codex-rs/tui/src/chatwidget/working_directory.rs
 +++ b/codex-rs/tui/src/chatwidget/working_directory.rs
-@@ -45,3 +45,84 @@
+@@ -45,3 +45,93 @@
          });
      }
  }
 +
 +impl ChatWidget {
++    pub(crate) fn apply_confirmed_writable_root(&mut self, root: &AbsolutePathBuf) {
++        if !self.config.workspace_roots.contains(root) {
++            self.config.workspace_roots.push(root.clone());
++        }
++        self.config
++            .permissions
++            .set_workspace_roots(self.config.workspace_roots.clone());
++    }
++
 +    pub(super) fn request_add_directory(&mut self, path: &str) {
 +        if path.trim().is_empty() {
 +            self.add_error_message("Usage: /add-dir <path>".to_string());
@@ -1117,4 +1274,143 @@ diff --git a/codex-rs/tui/src/chatwidget/tests/slash_commands.rs b/codex-rs/tui/
 +        );
 +        assert!(chat.bottom_pane.no_modal_or_popup_active());
 +    }
++}
+diff --git a/codex-rs/tui/src/app/thread_settings.rs b/codex-rs/tui/src/app/thread_settings.rs
+--- a/codex-rs/tui/src/app/thread_settings.rs
++++ b/codex-rs/tui/src/app/thread_settings.rs
+@@ -193,6 +193,41 @@
+         self.send_thread_settings_update(app_server, params).await;
+     }
+ 
++    /// The local TUI sends workspace roots on every turn. Adopt only a server-
++    /// acknowledged grant before allowing the next submission to overwrite them.
++    pub(super) async fn apply_confirmed_writable_root(
++        &mut self,
++        thread_id: ThreadId,
++        root: &codex_utils_absolute_path::AbsolutePathBuf,
++    ) {
++        if !self.config.workspace_roots.contains(root) {
++            self.config.workspace_roots.push(root.clone());
++        }
++        self.config
++            .permissions
++            .set_workspace_roots(self.config.workspace_roots.clone());
++        self.chat_widget.apply_confirmed_writable_root(root);
++        let adopt = |session: &mut ThreadSessionState| {
++            if !session.runtime_workspace_roots.contains(root) {
++                session.runtime_workspace_roots.push(root.clone());
++            }
++        };
++        if let Some(session) = self.primary_session_configured.as_mut()
++            && session.thread_id == thread_id
++        {
++            adopt(session);
++        }
++        if let Some(blank) = self.agents_overview.blank_sessions.get_mut(&thread_id) {
++            adopt(&mut blank.session);
++        }
++        if let Some(channel) = self.thread_event_channels.get(&thread_id) {
++            let mut store = channel.store.lock().await;
++            if let Some(session) = store.session.as_mut() {
++                adopt(session);
++            }
++        }
++    }
++
+     pub(super) async fn apply_thread_settings_to_cached_session(
+         &mut self,
+         thread_id: ThreadId,
+diff --git a/codex-rs/tui/src/app/tests/turn_submission.rs b/codex-rs/tui/src/app/tests/turn_submission.rs
+--- a/codex-rs/tui/src/app/tests/turn_submission.rs
++++ b/codex-rs/tui/src/app/tests/turn_submission.rs
+@@ -463,3 +463,90 @@
+     app_server.shutdown().await?;
+     Ok(())
+ }
++
++#[tokio::test]
++async fn add_dir_acknowledged_grant_updates_next_turn_and_cached_roots() -> Result<()> {
++    let (mut app, _events, _ops) = make_test_app_with_channels().await;
++    let home = tempfile::tempdir()?;
++    let workspace = tempfile::tempdir()?;
++    let extra = tempfile::tempdir()?;
++    app.config.codex_home = home.path().to_path_buf().abs();
++    app.config.sqlite = codex_state::SqliteConfig::new_for_testing(home.path().abs());
++    app.config.cwd = workspace.path().canonicalize()?.abs();
++    app.config.workspace_roots = vec![app.config.cwd.clone()];
++    app.config
++        .permissions
++        .set_workspace_roots(app.config.workspace_roots.clone());
++    app.config
++        .permissions
++        .set_permission_profile(PermissionProfile::workspace_write())?;
++    let mut server = crate::start_embedded_app_server_for_picker(&app.config).await?;
++    let started = server.start_thread(&app.config).await?;
++    let thread_id = started.session.thread_id;
++    app.enqueue_primary_thread_session(started.session, started.turns)
++        .await?;
++    let root = extra.path().canonicalize()?.abs();
++    let mut tui = crate::tui::test_support::make_test_tui()?;
++    // Exercise the confirmation event and acknowledgement, not just a standalone
++    // server update: the next turn is built from the widget's permission roots.
++    for _ in 0..2 {
++        app.handle_event(
++            &mut tui,
++            &mut server,
++            AppEvent::AddWritableRoot {
++                thread_id,
++                source_cwd: app.config.cwd.clone(),
++                root: root.clone(),
++            },
++        )
++        .await?;
++        for roots in [
++            app.config.workspace_roots.as_slice(),
++            app.chat_widget.config_ref().workspace_roots.as_slice(),
++            app.chat_widget
++                .config_ref()
++                .permissions
++                .user_visible_workspace_roots(),
++            &app.primary_session_configured
++                .as_ref()
++                .unwrap()
++                .runtime_workspace_roots,
++        ] {
++            assert_eq!(roots.iter().filter(|path| *path == &root).count(), 1);
++            assert!(roots.contains(&app.config.cwd));
++        }
++        let store = app.thread_event_channels[&thread_id].store.lock().await;
++        assert!(
++            store
++                .session
++                .as_ref()
++                .unwrap()
++                .runtime_workspace_roots
++                .contains(&root)
++        );
++    }
++    let protected = root.join(".git");
++    std::fs::create_dir(protected.as_path())?;
++    let before = app.chat_widget.config_ref().workspace_roots.clone();
++    app.handle_event(
++        &mut tui,
++        &mut server,
++        AppEvent::AddWritableRoot {
++            thread_id,
++            source_cwd: app.config.cwd.clone(),
++            root: protected.clone(),
++        },
++    )
++    .await?;
++    assert_eq!(app.chat_widget.config_ref().workspace_roots, before);
++    assert!(!app.config.workspace_roots.contains(&protected));
++    assert!(
++        !app.primary_session_configured
++            .as_ref()
++            .unwrap()
++            .runtime_workspace_roots
++            .contains(&protected)
++    );
++    server.shutdown().await?;
++    Ok(())
 +}
