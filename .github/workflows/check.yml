@@ -33,6 +33,7 @@ jobs:
           python3 tests/source-patcher.py
           python3 tests/manifest.py
           python3 tests/release.py
+          python3 tests/export-native.py
           python3 tests/rebase-patches.py
           python3 tests/mergiraf.py
           python3 tests/release-client.py
