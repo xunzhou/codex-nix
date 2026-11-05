@@ -43,11 +43,17 @@ A successful refresh invalidates syntax rendering caches; a failed terminal
 probe keeps the last usable palette and syntax theme. Terminal scrollback that
 has already left the redrawable viewport retains its original colors.
 
-## Static Nix experiment
+## Build and export once
 
-The experimental `codex-static` target builds the binary pair with Nix's musl
-toolchain, static OpenSSL, and static libcap. It uses eight compiler jobs.
-Export that output directly into the existing native release format:
+The default Nix package builds static musl `codex` and `codex-code-mode-host`
+with static OpenSSL and libcap. The updater exports these exact binaries into
+its native tarball, alongside the Nix closure and matching recipe archive.
+Release tags, asset naming, checksums, and both installation paths keep their
+existing format.
+
+For local development, `codex-static` builds the same source and runs the same
+patch tests without the publisher-only feature requirement. It uses eight
+compiler jobs; the release package keeps its two-job limit.
 
 ```sh
 nix build .#codex-static --out-link result-static
@@ -60,21 +66,16 @@ marker, checksums, and absence of ELF interpreter/shared-library dependencies.
 The portability check requires `bwrap`, `readelf`, and Python 3.12+. It runs the
 exported pair and a V8 calculation in an empty filesystem without `/nix/store`.
 Pass an existing exported tarball as its second argument to skip repacking.
-
-Verified locally with Codex 0.163.0: both binaries ran without Nix, and V8
-returned `42`. The clean compile took 42 minutes 49 seconds with eight jobs.
-This run needed dependency sources moved out of an almost-full RAM-backed
-`/tmp` after compilation; allow sufficient temporary storage for fresh builds.
-
-The default Nix package and scheduled release builds still use the existing
-pipeline. This target tests whether one static compilation can supply both
-release formats before changing publication.
+Use sufficient temporary disk space for fresh builds; hosted build jobs reclaim
+unused SDKs and add 16 GiB of swap for the optimized Rust test link.
 
 ## Automatic updates
 
 [GitHub Actions](https://github.com/xunzhou/codex-nix/actions/workflows/update.yml)
-checks upstream once a day, builds the Nix closure and static native binaries
-from the same patched source, tests them, and publishes one release with both.
+checks upstream once a day, compiles the patched static binaries once with Nix,
+runs the palette and interrupt regression tests, and publishes the Nix closure
+and native tarball in one release. Both fresh-install download checks remain
+required after publication.
 
 Simple patch drift is rebased automatically. Conflicts or failing tests stop the
 update and leave the last working release available. Check the failed run's
