@@ -14,7 +14,13 @@
         system:
         let
           pkgs = import nixpkgs { inherit system; };
-          codex = pkgs.callPackage ./package.nix { };
+          # One musl build supplies both the Nix closure and native tarball.
+          codex = pkgs.pkgsStatic.callPackage ./package.nix { };
+          # Explicit local development target; publication uses the gated package.
+          codex-static = codex.overrideAttrs {
+            requiredSystemFeatures = [ ];
+            preBuild = ''export NIX_BUILD_CORES=8'';
+          };
           installer = pkgs.writeShellApplication {
             name = "install-codex-bundle";
             runtimeInputs = [
@@ -32,7 +38,7 @@
           };
         in
         {
-          inherit codex installer;
+          inherit codex codex-static installer;
           default = codex;
         }
       );

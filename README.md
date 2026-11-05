@@ -43,11 +43,42 @@ A successful refresh invalidates syntax rendering caches; a failed terminal
 probe keeps the last usable palette and syntax theme. Terminal scrollback that
 has already left the redrawable viewport retains its original colors.
 
+## Build and export once
+
+The default Nix package builds static musl `codex` and `codex-code-mode-host`
+with static OpenSSL and libcap. The updater exports these exact binaries into
+its native tarball, alongside the Nix closure and matching recipe archive.
+Release tags, asset naming, checksums, and both installation paths keep their
+existing format.
+
+For local development, `codex-static` builds the same source and runs the same
+patch tests without the publisher-only feature requirement. It uses eight
+compiler jobs; the release package keeps its two-job limit.
+
+```sh
+nix build .#codex-static --out-link result-static
+python3 scripts/export-native.py --package result-static --output-dir dist
+bash tests/static-portability.sh result-static
+```
+
+The exporter preserves the exact binary bytes and verifies the version, patch
+marker, checksums, and absence of ELF interpreter/shared-library dependencies.
+The portability check requires `bwrap`, `readelf`, and Python 3.12+. It runs the
+exported pair and a V8 calculation in an empty filesystem without `/nix/store`.
+Pass an existing exported tarball as its second argument to skip repacking.
+Use sufficient temporary disk space for fresh builds; hosted build jobs reclaim
+unused SDKs and add 16 GiB of swap for the optimized Rust test link.
+A tiny nextest fixture validates the rendered flags and test selection before
+the full compilation. Escape tests match `esc` at a name-word prefix, avoiding
+unrelated `descendants`, `reschedule`, and `coalesces` integration tests.
+
 ## Automatic updates
 
 [GitHub Actions](https://github.com/xunzhou/codex-nix/actions/workflows/update.yml)
-checks upstream once a day, builds the Nix closure and static native binaries
-from the same patched source, tests them, and publishes one release with both.
+checks upstream once a day, compiles the patched static binaries once with Nix,
+runs the palette and interrupt regression tests, and publishes the Nix closure
+and native tarball in one release. Both fresh-install download checks remain
+required after publication.
 
 Simple patch drift is rebased automatically. Conflicts or failing tests stop the
 update and leave the last working release available. Check the failed run's

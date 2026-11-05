@@ -6,6 +6,8 @@
   fetchurl,
   pkg-config,
   openssl,
+  libcap,
+  buildPackages,
   releaseVersion ? null,
 }:
 let
@@ -35,13 +37,28 @@ rustPlatform.buildRustPackage ({
     export NIX_BUILD_CORES=2
   '';
   requiredSystemFeatures = [ "codex-artifact-publisher" ];
-  # Exercise live refresh behavior in PR and Nix release builds as well as the
-  # native release path; applying a patch and checking a marker is insufficient.
+  OPENSSL_NO_VENDOR = 1;
+  OPENSSL_STATIC = 1;
+  AWS_LC_SYS_NO_JITTER_ENTROPY = 1;
+  # Keep the patch regressions from the former native build. Escape names must
+  # start a word: a substring also selects descendants/reschedule/coalesces tests.
   doCheck = true;
-  cargoTestFlags = [ "-p" "codex-tui" "--lib" ];
-  checkFlags = [ "palette_refresh" ];
+  useNextest = true;
+  cargoTestFlags = [
+    "-p" "codex-tui" "--lib" "--build-jobs" "2" "-E"
+    # stdenv splits this environment variable on whitespace: keep one token.
+    "test(/(^|::|_)esc/)|test(palette_refresh)|test(hook_status_reflows)|test(running_hooks_fit)|test(compaction_status)|test(usage_notice)"
+  ];
+  preCheck = ''
+    unset NO_COLOR TMUX TERM_PROGRAM
+    export TERM=xterm-256color
+    export HOME="$TMPDIR/codex-test-home"
+    export CODEX_HOME="$HOME/.codex"
+    mkdir -p "$CODEX_HOME"
+  '';
   nativeBuildInputs = [ pkg-config ];
-  buildInputs = [ openssl ];
+  nativeCheckInputs = [ buildPackages.gitMinimal ];
+  buildInputs = [ openssl (libcap.override { withGo = false; }) ];
   installPhase = ''
     runHook preInstall
     ${lib.concatMapStringsSep "\n" (name: ''

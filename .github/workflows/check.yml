@@ -33,6 +33,8 @@ jobs:
           python3 tests/source-patcher.py
           python3 tests/manifest.py
           python3 tests/release.py
+          python3 tests/export-native.py
+          python3 tests/release-workflow.py
           python3 tests/rebase-patches.py
           python3 tests/mergiraf.py
           python3 tests/release-client.py
@@ -55,6 +57,18 @@ jobs:
             RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" \
             bash scripts/reclaim-runner-disk.sh
 
+      - name: Install runtime isolation tool
+        if: github.event_name == 'pull_request'
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+
+      - name: Add memory headroom for optimized Rust tests
+        if: github.event_name == 'pull_request'
+        run: bash scripts/setup-build-swap.sh
+
+      - name: Validate rendered nextest flags
+        if: github.event_name == 'pull_request'
+        run: nix shell --inputs-from . nixpkgs#cargo nixpkgs#rustc nixpkgs#gcc nixpkgs#cargo-nextest --command python3 tests/nextest-flags.py
+
       - name: Build and test Codex binaries
         if: github.event_name == 'pull_request'
         shell: bash
@@ -63,3 +77,5 @@ jobs:
           nix --extra-system-features codex-artifact-publisher build -L .#codex
           ./result/bin/codex --version
           ./result/bin/codex-code-mode-host --help >/dev/null
+          python3 scripts/export-native.py --package result --output-dir "$RUNNER_TEMP/native-assets"
+          sudo bash tests/static-portability.sh result "$RUNNER_TEMP"/native-assets/codex-native-*.tar.gz

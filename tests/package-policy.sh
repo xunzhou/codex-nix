@@ -222,6 +222,18 @@ effective_build_cores=$(
 [[ "$effective_build_cores" == 2 ]] ||
   fail "Codex build permits $effective_build_cores concurrent Cargo jobs"
 
+# concatTo in stdenv splits string flags on whitespace. The filter must survive
+# that conversion as one argument, with every original patch selector present.
+read -r -a codex_test_flags <<<"$(jq -r \
+  '.derivations | to_entries[0].value.env.cargoTestFlags' <<<"$codex_derivation")"
+((${#codex_test_flags[@]} >= 2)) || fail 'missing patch test flags'
+[[ ${codex_test_flags[-2]} == -E ]] || fail 'nextest filter split across arguments'
+[[ ${codex_test_flags[-1]} == *'test(/(^|::|_)esc/)'* ]] ||
+  fail 'Escape test filter must match a word prefix'
+for selector in palette_refresh hook_status_reflows running_hooks_fit compaction_status usage_notice; do
+  [[ ${codex_test_flags[-1]} == *"test($selector)"* ]] || fail "missing nextest selector: $selector"
+done
+
 git -C "$repo_root" rev-parse --is-inside-work-tree >/dev/null
 
 license_pattern='(^|/)LICENSE($|[.])'
