@@ -54,6 +54,10 @@ class ReleaseWorkflowTests(unittest.TestCase):
                          'running_hooks_fit', 'compaction_status', 'usage_notice'):
             self.assertIn(f'test({selector})', package)
         self.assertIn('export NIX_BUILD_CORES=2', package)
+        # The Nix nextest hook supplies -j for test concurrency. Compilation has
+        # its own --build-jobs flag; duplicating --test-threads is a CLI error.
+        self.assertIn('"--build-jobs" "2"', package)
+        self.assertNotIn('"--test-threads', package)
         self.assertIn('pkgs.pkgsStatic.callPackage ./package.nix', (ROOT / 'flake.nix').read_text())
         for name in ('update', 'check'):
             workflow = (ROOT / f'.github/workflows/{name}.yml').read_text()
