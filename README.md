@@ -114,9 +114,16 @@ bash tests/runtime-add-dir.sh /path/to/patched/codex
 ```
 
 This runs the focused core/TUI permission tests and the app-server tests for
-expiry on cold resume, managed policy, and refreshed model context. It needs the
-pinned Rust toolchain,
+expiry on cold resume, managed policy, and refreshed model context. On Unix it
+also runs actual sandboxed write probes: denied before the grant, allowed after
+it with the next turn's client settings, and still denied in protected metadata
+and unrelated directories. The TUI regression checks that a server-acknowledged
+grant updates the roots sent on subsequent turns and the cached thread roots.
+It needs the pinned Rust toolchain,
 Cargo dependencies, and loopback networking for the mock model server.
+
+See [the validation report](tests/runtime-add-dir-validation.md) for the
+next-turn cache regression, results, and manual retry instructions.
 
 ## Automatic updates
 
