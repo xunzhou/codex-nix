@@ -12,7 +12,8 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parent.parent
-SELECTORS = ('esc', 'palette_refresh', 'hook_status_reflows', 'running_hooks_fit',
+SELECTORS = ('esc', 'escape_closes', 'backtrack_esc', 'vim_escape_recovery',
+             'palette_refresh', 'hook_status_reflows', 'running_hooks_fit',
              'compaction_status', 'usage_notice')
 
 
@@ -30,7 +31,11 @@ def main():
             '[lib]\npath="lib.rs"\n')
         (fixture / 'lib.rs').write_text(''.join(
             f'#[test] fn {name}() {{}}\n' for name in SELECTORS)
-            + '#[test] fn unrelated_should_not_run() { panic!("filter was lost"); }\n')
+            + 'mod nested { #[test] fn escape_closes() {} }\n'
+            + ''.join(f'#[test] fn {name}() {{ panic!("unrelated test selected"); }}\n'
+                      for name in ('unrelated_should_not_run',
+                                   'consumer_roots_include_paginated_archived_descendants_and_keep_missing_usage',
+                                   'reschedule_timer', 'coalesces_events')))
         environment = dict(os.environ, CARGO=shutil.which('cargo'),
                            CARGO_HOME=str(fixture / 'cargo-home'),
                            CARGO_TARGET_DIR=str(fixture / 'target'),
@@ -50,9 +55,10 @@ def main():
         result = subprocess.run(command, cwd=fixture, env=environment,
                                 capture_output=True, text=True)
         output = result.stdout + result.stderr
-        if result.returncode or not re.search(r'6 tests run:\s+6 passed', output):
+        expected = len(SELECTORS) + 1  # Include the nested Escape test.
+        if result.returncode or not re.search(rf'{expected} tests run:\s+{expected} passed', output):
             raise SystemExit('nextest flag preflight failed:\n' + output)
-        print('nextest flag preflight: all 6 selected tests passed; unrelated test excluded')
+        print(f'nextest flag preflight: all {expected} selected tests passed; unrelated tests excluded')
 
 
 if __name__ == '__main__':

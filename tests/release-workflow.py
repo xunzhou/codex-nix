@@ -50,7 +50,11 @@ class ReleaseWorkflowTests(unittest.TestCase):
         package = (ROOT / 'package.nix').read_text()
         self.assertIn('doCheck = true;', package)
         self.assertIn('useNextest = true;', package)
-        for selector in ('esc', 'palette_refresh', 'hook_status_reflows',
+        self.assertIn('test(/(^|::|_)esc/)', package)
+        native = (ROOT / 'scripts/install-source-codex.py').read_text()
+        self.assertIn('test(/(^|::|_)esc/)', native)
+        self.assertNotIn('test(esc)', package + native)
+        for selector in ('palette_refresh', 'hook_status_reflows',
                          'running_hooks_fit', 'compaction_status', 'usage_notice'):
             self.assertIn(f'test({selector})', package)
         self.assertIn('export NIX_BUILD_CORES=2', package)
