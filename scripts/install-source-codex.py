@@ -376,6 +376,11 @@ def main():
                         "--lib", "--test-threads=2", "-E",
                         "test(esc) | test(palette_refresh) | test(hook_status_reflows) | test(running_hooks_fit) | test(compaction_status) | test(usage_notice)",
                         cwd=source / "codex-rs", env=env)
+                    if any(Path(patch).name == "runtime-add-dir.patch" for patch in spec["patches"]):
+                        run(cargo, "nextest", "run", "--release", "--locked",
+                            "-p", "codex-core", "-p", "codex-tui", "--lib",
+                            "--test-threads=2", "-E", "test(add_dir_)",
+                            cwd=source / "codex-rs", env=env)
                 with tempfile.TemporaryDirectory(prefix="bundle-", dir=cache) as pending:
                     pending = Path(pending)
                     for name in binaries:

@@ -18,7 +18,8 @@
       }
     },
     "markers": [
-      "terminal palette refresh did not return default colors"
+      "terminal palette refresh did not return default colors",
+      "Grant directory write access?"
     ],
     "release_target": "x86_64-unknown-linux-musl"
   },
@@ -61,7 +62,8 @@
       },
       "patches": [
         "0.163.0/live-palette-refresh.patch",
-        "0.163.0/double-esc-interrupt.patch"
+        "0.163.0/double-esc-interrupt.patch",
+        "0.163.0/runtime-add-dir.patch"
       ],
       "cargo_hash": "sha256-TG1fDHQCRDDbk+G0NS/9NTouJupq0Zisi4LIJY4SgYw="
     }
