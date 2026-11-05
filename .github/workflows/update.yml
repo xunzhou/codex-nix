@@ -150,6 +150,9 @@ jobs:
           bash tests/update.sh
           bash tests/bundle.sh
           nix flake check --no-build
+      - name: Validate rendered nextest flags
+        run: nix shell --inputs-from . nixpkgs#cargo nixpkgs#rustc nixpkgs#gcc nixpkgs#cargo-nextest --command python3 tests/nextest-flags.py
+
       - name: Build, test, and prepare both release formats
         env:
           VERSION: ${{ needs.prepare.outputs.version }}

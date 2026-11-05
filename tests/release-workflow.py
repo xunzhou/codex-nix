@@ -63,6 +63,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
             workflow = (ROOT / f'.github/workflows/{name}.yml').read_text()
             self.assertIn('bash scripts/setup-build-swap.sh', workflow)
             self.assertIn('apt-get install -y bubblewrap', workflow)
+            self.assertIn('--command python3 tests/nextest-flags.py', workflow)
 
     def test_swap_setup_refuses_local_machine(self):
         result = subprocess.run(['bash', str(ROOT / 'scripts/setup-build-swap.sh')],

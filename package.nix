@@ -45,7 +45,8 @@ rustPlatform.buildRustPackage ({
   useNextest = true;
   cargoTestFlags = [
     "-p" "codex-tui" "--lib" "--build-jobs" "2" "-E"
-    "test(esc) | test(palette_refresh) | test(hook_status_reflows) | test(running_hooks_fit) | test(compaction_status) | test(usage_notice)"
+    # stdenv splits this environment variable on whitespace: keep one token.
+    "test(esc)|test(palette_refresh)|test(hook_status_reflows)|test(running_hooks_fit)|test(compaction_status)|test(usage_notice)"
   ];
   preCheck = ''
     unset NO_COLOR TMUX TERM_PROGRAM
