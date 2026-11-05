@@ -14,7 +14,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parent.parent
 SELECTORS = ('esc', 'escape_closes', 'backtrack_esc', 'vim_escape_recovery',
              'palette_refresh', 'hook_status_reflows', 'running_hooks_fit',
-             'compaction_status', 'usage_notice')
+             'compaction_status', 'usage_notice', 'external_editor_reference')
 
 
 def main():
@@ -28,7 +28,15 @@ def main():
         fixture = Path(directory)
         (fixture / 'Cargo.toml').write_text(
             '[package]\nname="codex-tui"\nversion="0.0.0"\nedition="2024"\n'
+            '[lib]\npath="lib.rs"\n'
+            '[workspace]\nmembers=["config"]\n')
+        (fixture / 'config').mkdir()
+        (fixture / 'config/Cargo.toml').write_text(
+            '[package]\nname="codex-config"\nversion="0.0.0"\nedition="2024"\n'
             '[lib]\npath="lib.rs"\n')
+        (fixture / 'config/lib.rs').write_text(
+            '#[test] fn external_editor_reference_config() {}\n'
+            '#[test] fn unrelated_config() { panic!("unrelated config selected"); }\n')
         (fixture / 'lib.rs').write_text(''.join(
             f'#[test] fn {name}() {{}}\n' for name in SELECTORS)
             + 'mod nested { #[test] fn escape_closes() {} }\n'
@@ -55,7 +63,7 @@ def main():
         result = subprocess.run(command, cwd=fixture, env=environment,
                                 capture_output=True, text=True)
         output = result.stdout + result.stderr
-        expected = len(SELECTORS) + 1  # Include the nested Escape test.
+        expected = len(SELECTORS) + 2  # Nested Escape plus the config opt-in test.
         if result.returncode or not re.search(rf'{expected} tests run:\s+{expected} passed', output):
             raise SystemExit('nextest flag preflight failed:\n' + output)
         print(f'nextest flag preflight: all {expected} selected tests passed; unrelated tests excluded')
