@@ -1,7 +1,8 @@
 # Patched Codex
 
-Codex with three small changes:
+Codex with session and terminal improvements:
 
+- **Runtime directory grants:** use `/add-dir <path>` to grant a directory without restarting the conversation.
 - **Live terminal colors:** refresh the palette and adaptive syntax highlighting without restarting Codex.
 - **Double Escape to interrupt:** press Escape twice within 400 ms to stop a turn.
   Menus, Vim mode, and Ctrl-C keep their usual behavior.
@@ -73,6 +74,49 @@ unused SDKs and add 16 GiB of swap for the optimized Rust test link.
 A tiny nextest fixture validates the rendered flags and test selection before
 the full compilation. Escape tests match `esc` at a name-word prefix, avoiding
 unrelated `descendants`, `reschedule`, and `coalesces` integration tests.
+
+## Grant another directory during a conversation
+
+Run `/add-dir <path>` between turns in a local primary session. Relative paths
+are resolved against the session cwd; the whole argument is the path, so spaces
+need no shell quoting. The directory must exist. Codex canonicalizes it and
+shows the resolved path in a confirmation picker with **Cancel** selected.
+Choose **Grant write access to this directory** to proceed; Enter on Cancel or
+Escape dismisses the prompt without a grant. Already writable paths are reported
+without another prompt.
+
+The root is added to the current conversation's workspace roots. Existing roots,
+network and approval settings, the active permission profile, and protected-path
+rules remain in force. Managed policy can reject the grant and its reason is
+shown. The command requires a profile with workspace-root write permission;
+read-only and named profiles limited to explicit paths are not widened. Protected
+metadata directories (`.git`, `.agents`, `.codex`, `.aws`) cannot be granted as
+roots. Remote and attachment-owned environments are unsupported.
+
+The change applies from the **next turn**, including its tool calls and the
+model's refreshed environment context. Already-running turns, terminals, REPLs,
+and other processes retain their original sandbox permissions; launch a new
+process on the next turn to use the grant.
+
+Grants last for the **current runtime only** and **do not survive a cold resume**.
+They are omitted from persistent settings and runtime replacement snapshots;
+run `/add-dir` again after restarting or reloading if access is still needed.
+Reconnecting to an already-running runtime retains its grants. Codex's existing
+policy deliberately refuses to restore materialized filesystem grants from
+history. The command never modifies `config.toml` or defaults. A path that stops
+resolving to the confirmed canonical directory between confirmation and
+application is rejected; run the command again.
+
+For patch validation against the manifest's extracted, patched upstream source:
+
+```sh
+bash tests/runtime-add-dir.sh /path/to/patched/codex
+```
+
+This runs the focused core/TUI permission tests and the app-server tests for
+expiry on cold resume, managed policy, and refreshed model context. It needs the
+pinned Rust toolchain,
+Cargo dependencies, and loopback networking for the mock model server.
 
 ## Automatic updates
 

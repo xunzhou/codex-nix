@@ -230,7 +230,7 @@ read -r -a codex_test_flags <<<"$(jq -r \
 [[ ${codex_test_flags[-2]} == -E ]] || fail 'nextest filter split across arguments'
 [[ ${codex_test_flags[-1]} == *'test(/(^|::|_)esc/)'* ]] ||
   fail 'Escape test filter must match a word prefix'
-for selector in palette_refresh hook_status_reflows running_hooks_fit compaction_status usage_notice external_editor_reference; do
+for selector in palette_refresh hook_status_reflows running_hooks_fit compaction_status usage_notice add_dir_ external_editor_reference; do
   [[ ${codex_test_flags[-1]} == *"test($selector)"* ]] || fail "missing nextest selector: $selector"
 done
 
