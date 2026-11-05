@@ -76,7 +76,9 @@ class ClientTests(unittest.TestCase):
             key = native.recipe_key(spec, [recipe / 'patches/test.patch'], version)
             binary = root / 'binary'; binary.mkdir()
             for name in spec['binaries']:
-                (binary / name).write_text('#!/bin/sh\n# terminal palette refresh did not return default colors\necho codex-cli ' + version + '\n')
+                (binary / name).write_text('#!/bin/sh\n'
+                    + ''.join('# ' + marker + '\n' for marker in spec['markers'])
+                    + 'echo codex-cli ' + version + '\n')
                 (binary / name).chmod(0o755)
             (binary / 'bundle.json').write_text(json.dumps({'version': version, 'key': key}))
             (binary / 'sha256.json').write_text(json.dumps({name: m.digest(binary / name) for name in spec['binaries']}))
