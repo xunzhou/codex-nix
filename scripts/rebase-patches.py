@@ -55,6 +55,30 @@ def resolve_interrupt_signature(text):
     return result
 
 
+def resolve_palette_event_entry(text):
+    """Preserve 0.167.0 approval synchronization and our palette refresh."""
+    pattern = re.compile(
+        r'(?P<entry>    pub\(crate\) async fn handle_tui_event\(\n'
+        r'        &mut self,\n'
+        r'        tui: &mut tui::Tui,\n'
+        r'        app_server: &mut AppServerSession,\n'
+        r'        event: TuiEvent,\n'
+        r'    \) -> Result<AppRunControl> \{\n)'
+        r'^<<<<<<< [^\n]+\n'
+        r'(?P<upstream>        self\.transcript_view\n'
+        r'            \.sync_patch_approval\(self\.chat_widget\.current_patch_approval\(\)\);\n)'
+        r'\|\|\|\|\|\|\| [^\n]+\n'
+        r'=======\n'
+        r'(?P<refresh>        self\.refresh_syntax_theme_from_terminal_palette\(\);\n)'
+        r'>>>>>>> [^\n]+\n'
+        r'(?=        tui\.link_hover\.observe\(&event\);\n)', re.MULTILINE)
+    result, count = pattern.subn(
+        lambda match: match['entry'] + match['upstream'] + match['refresh'], text)
+    if count != 1 or re.search(r'^(?:<<<<<<<|=======|>>>>>>>|\|\|\|\|\|\|\|)(?: |$)', result, re.MULTILINE):
+        return None
+    return result
+
+
 def merge_rust_conflict(tree, name):
     """Use an explicitly configured Mergiraf; publish only conflict-free output."""
     binary = os.environ.get('CODEX_MERGIRAF')
@@ -89,6 +113,8 @@ def resolve_hint_snapshots(tree):
         if name.endswith('.rs'):
             content = (resolve_interrupt_signature((tree / name).read_text())
                 if name == 'codex-rs/tui/src/chatwidget/interaction.rs' else None)
+            if name == 'codex-rs/tui/src/app.rs':
+                content = resolve_palette_event_entry((tree / name).read_text())
             if content is None:
                 content = merge_rust_conflict(tree, name)
             if content is None:
