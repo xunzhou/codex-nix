@@ -20,15 +20,16 @@ def require(ok, category, location):
         raise Blocked(f'{category}: {location}')
 
 
-def run(*args, data=None):
-    result = subprocess.run(args, input=data, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+def run(*args, data=None, env=None):
+    result = subprocess.run(args, input=data, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     require(result.returncode == 0, 'command-failed', 'publication')
     return result.stdout
 
 
 def git(*args, data=None):
     # Replacement objects and shallow boundaries must not hide outgoing history.
-    return run('git', '--no-replace-objects', *args, data=data)
+    return run('git', '--no-replace-objects', *args, data=data,
+               env={**os.environ, 'GIT_NO_LAZY_FETCH': '1'})
 
 
 def digest(data):
@@ -105,20 +106,24 @@ def check_updates(updates, baseline, allowed):
         tips.append(new)
     if not tips:
         return []
-    # Only advertised destination history is trusted. Missing objects fail closed.
+    # Verify the entire outgoing closure before exclusions can hide missing history.
+    git('rev-list', '--objects', '--missing=error', '--stdin',
+        data=('\n'.join(tips) + '\n').encode())
+    # Unknown advertised refs are omitted, never replaced by tracking refs.
+    # An omitted exclusion causes more scanning, not less.
     exclusions = []
     for value in sorted(set(baseline.values())):
         oid(value)
-        git('cat-file', '-e', value)
-        peeled = git('rev-parse', value + '^{}').decode().strip()
-        if git('cat-file', '-t', peeled).strip() == b'commit':
-            exclusions.append('^' + peeled)
+        kind = git('cat-file', '--batch-check=%(objecttype)', data=(value + '\n').encode()).strip()
+        if kind == b'commit':
+            exclusions.append('^' + value)
+        # Annotated tags are not needed as exclusions; omit them conservatively.
     revisions = '\n'.join(tips + exclusions) + '\n'
     commits = git('rev-list', '--stdin', data=revisions.encode()).decode().splitlines()
     for commit in commits:
         raw = git('cat-file', 'commit', commit)
         scan(raw, 'commit-' + commit)
-        headers, message = raw.split(b'\n\n', 1)
+        headers, message = commit_parts(raw, commit)
         for field in (b'author', b'committer'):
             lines = [s for s in headers.splitlines() if s.startswith(field + b' ')]
             require(len(lines) == 1, 'identity-header', commit)
@@ -150,6 +155,39 @@ def check_updates(updates, baseline, allowed):
     return commits
 
 
+def commit_parts(raw, location):
+    parts = raw.split(b'\n\n', 1)
+    require(len(parts) == 2, 'commit-structure', location)
+    headers, message = parts
+    lines = headers.split(b'\n')
+    require(bool(lines) and re.fullmatch(rb'tree [a-f0-9]{40}|tree [a-f0-9]{64}', lines[0]),
+            'commit-structure', location)
+    index = 1
+    while index < len(lines) and lines[index].startswith(b'parent '):
+        require(re.fullmatch(rb'parent [a-f0-9]{40}|parent [a-f0-9]{64}', lines[index]),
+                'commit-structure', location)
+        index += 1
+    require(len(lines) == index + 2 and lines[index].startswith(b'author ')
+            and lines[index + 1].startswith(b'committer '), 'unsupported-commit-headers', location)
+    return headers, message
+
+
+def decode_payload(raw):
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            require(key not in result, 'duplicate-json-key', 'payload')
+            result[key] = value
+        return result
+
+    try:
+        text = raw.decode('utf-8') if isinstance(raw, bytes) else raw
+        return json.loads(text, object_pairs_hook=unique,
+                          parse_constant=lambda _: require(False, 'json-constant', 'payload'))
+    except (UnicodeError, json.JSONDecodeError):
+        raise Blocked('invalid-json: payload') from None
+
+
 def receipt(kind, value):
     # No content, ref names, or identities in diagnostics/receipts.
     print(json.dumps({'gate': 1, 'kind': kind, 'sha256': digest(value)}, sort_keys=True))
@@ -169,20 +207,28 @@ def pre_push(remote, stream):
                               sort_keys=True).encode())
 
 
-def payload_check(data, raw=None):
+def payload_check(data, raw=None, route="release"):
     require(isinstance(data, dict), 'payload-schema', 'payload')
-    require(set(data) <= {'title', 'body', 'name', 'head', 'base', 'draft', 'tag_name',
-                          'target_commitish', 'make_latest', 'prerelease'},
-            'payload-schema', 'keys')
+    fields = {
+        'release': {'body', 'name', 'draft', 'tag_name', 'target_commitish',
+                    'make_latest', 'prerelease'},
+        'pr': {'title', 'body', 'head', 'base', 'draft'},
+        'comment': {'body'},
+    }
+    require(route in fields, 'unsupported-route', 'payload')
+    require(set(data) <= fields[route], 'payload-schema', 'keys')
     for key, value in data.items():
-        if isinstance(value, str):
-            scan(value.encode(), 'field-' + key if key in ('title', 'body', 'name') else 'field',
-                 120 if key in ('title', 'name') else 2000)
+        location = 'field-' + key
+        if key in ('draft', 'prerelease'):
+            require(type(value) is bool, 'payload-type', location)
         else:
-            require(isinstance(value, bool) or value is None, 'payload-schema', 'field')
+            require(isinstance(value, str), 'payload-type', location)
+            if key == 'make_latest':
+                require(value in ('true', 'false', 'legacy'), 'payload-value', location)
+            scan(value.encode(), location, 120 if key in ('title', 'name') else 2000)
     if raw is None:
         raw = json.dumps(data, ensure_ascii=False, separators=(',', ':')).encode()
-    require(json.loads(raw) == data, 'payload-mismatch', 'payload')
+    require(decode_payload(raw) == data, 'payload-mismatch', 'payload')
     receipt('text', raw)
     return raw
 
@@ -194,7 +240,7 @@ def api_publish(kind, number, title, body, head, expected_head=None):
         require(head is not None and title is not None, 'required-field', 'pr')
         require(expected_head is not None, 'required-field', 'expected-head')
         oid(expected_head)
-        require(advertised('origin').get('refs/heads/' + head) == expected_head,
+        require(advertised('https://github.com/xunzhou/codex-nix.git').get('refs/heads/' + head) == expected_head,
                 'head-mismatch', 'pr')
         data.update(title=Path(title).read_bytes().decode('utf-8'),
                     head=head, base='main', draft=True)
@@ -207,7 +253,7 @@ def api_publish(kind, number, title, body, head, expected_head=None):
                 'required-field', 'release')
         data['name'] = Path(title).read_bytes().decode('utf-8')
         endpoint = f'releases/{number}'
-    payload = payload_check(data)
+    payload = payload_check(data, route=kind)
     run('gh', 'api', '--hostname', 'github.com', '--method',
         'PATCH' if kind == 'release' else 'POST',
         'repos/xunzhou/codex-nix/' + endpoint, '--input', '-', data=payload)
@@ -284,7 +330,7 @@ def main():
             pre_push(args.url, sys.stdin.read())
         elif args.command == 'payload':
             raw = sys.stdin.buffer.read()
-            payload_check(json.loads(raw), raw)
+            payload_check(decode_payload(raw), raw)
         else:
             api_publish(args.kind, args.number, args.title, args.body, args.head, args.expected_head)
     except (Blocked, OSError, ValueError, KeyError) as error:
