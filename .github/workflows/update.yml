@@ -42,6 +42,7 @@ jobs:
       sha: ${{ steps.candidate.outputs.sha }}
       changed: ${{ steps.candidate.outputs.changed }}
       version: ${{ steps.candidate.outputs.version }}
+      bundle_sha256: ${{ steps.candidate.outputs.bundle_sha256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -56,6 +57,8 @@ jobs:
         run: bash scripts/setup-mergiraf.sh
       - name: Test Rust conflict resolver
         run: python3 tests/mergiraf.py
+      - name: Test publication checks
+        run: python3 tests/publication-gate.py
       - name: Prepare candidate without publishing it
         id: candidate
         env:
@@ -98,8 +101,12 @@ jobs:
             "$base_sha" "$(git rev-parse HEAD)" "$changed" "$version" >>"$GITHUB_OUTPUT"
           # Source artifacts are public too; check before uploading the bundle.
           git config --local publication.identity 'github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>'
-          python3 scripts/publication_gate.py bundle --output "$RUNNER_TEMP/source.bundle"
+          if [[ "$changed" == true ]]; then
+            receipt=$(python3 scripts/publication_gate.py bundle --base "$base_sha" --output "$RUNNER_TEMP/source.bundle")
+            python3 -c 'import json,sys; print("bundle_sha256=" + json.load(sys.stdin)["sha256"])' <<<"$receipt" >>"$GITHUB_OUTPUT"
+          fi
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        if: steps.candidate.outputs.changed == 'true'
         with:
           name: release-source
           path: ${{ runner.temp }}/source.bundle
@@ -116,16 +123,24 @@ jobs:
           ref: ${{ needs.prepare.outputs.base }}
           fetch-depth: 0
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        if: needs.prepare.outputs.changed == 'true'
         with:
           name: release-source
           path: ${{ runner.temp }}/release-source
       - name: Restore exact candidate commit
         env:
           EXPECTED_SHA: ${{ needs.prepare.outputs.sha }}
+          EXPECTED_BASE: ${{ needs.prepare.outputs.base }}
+          BUNDLE_SHA256: ${{ needs.prepare.outputs.bundle_sha256 }}
+          CHANGED: ${{ needs.prepare.outputs.changed }}
         run: |
-          git fetch "$RUNNER_TEMP/release-source/source.bundle" HEAD
-          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
-          git checkout --detach "$EXPECTED_SHA"
+          if [[ "$CHANGED" == true ]]; then
+            python3 scripts/publication_gate.py restore-bundle --input "$RUNNER_TEMP/release-source/source.bundle" \
+              --base "$EXPECTED_BASE" --head "$EXPECTED_SHA" --sha256 "$BUNDLE_SHA256"
+          else
+            test "$EXPECTED_SHA" = "$EXPECTED_BASE"
+          fi
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - name: Install Nix
         uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
@@ -192,16 +207,24 @@ jobs:
           ref: ${{ needs.prepare.outputs.base }}
           fetch-depth: 0
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        if: needs.prepare.outputs.changed == 'true'
         with:
           name: release-source
           path: ${{ runner.temp }}/release-source
       - name: Restore exact candidate commit
         env:
           EXPECTED_SHA: ${{ needs.prepare.outputs.sha }}
+          EXPECTED_BASE: ${{ needs.prepare.outputs.base }}
+          BUNDLE_SHA256: ${{ needs.prepare.outputs.bundle_sha256 }}
+          CHANGED: ${{ needs.prepare.outputs.changed }}
         run: |
-          git fetch "$RUNNER_TEMP/release-source/source.bundle" HEAD
-          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
-          git checkout --detach "$EXPECTED_SHA"
+          if [[ "$CHANGED" == true ]]; then
+            python3 scripts/publication_gate.py restore-bundle --input "$RUNNER_TEMP/release-source/source.bundle" \
+              --base "$EXPECTED_BASE" --head "$EXPECTED_SHA" --sha256 "$BUNDLE_SHA256"
+          else
+            test "$EXPECTED_SHA" = "$EXPECTED_BASE"
+          fi
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - name: Install Nix
         uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:

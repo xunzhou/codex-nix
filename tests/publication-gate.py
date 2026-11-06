@@ -68,6 +68,19 @@ class GateTests(unittest.TestCase):
         self.commit('Fix parser', b'clean\n')
         self.assertEqual(len(self.check()), 1)
 
+    def test_public_signed_history_excluded_but_new_signed_commit_blocked(self):
+        raw = self.git('cat-file', 'commit', self.base)
+        headers, message = raw.split(b'\n\n', 1)
+        signed = self.git('hash-object', '-t', 'commit', '-w', '--stdin',
+                          data=headers + b'\ngpgsig synthetic\n signature continuation\n\n'
+                          + message).decode().strip()
+        with self.assertRaisesRegex(gate.Blocked, 'unsupported-commit-headers'):
+            self.check(head=signed)
+        self.git('reset', '--hard', signed)
+        self.baseline = {'refs/heads/main': signed}
+        head = self.commit('Update source', b'new source')
+        self.assertEqual(self.check(), [head])
+
     def test_intermediate_deleted_blob_rejected(self):
         self.commit('Add file', PRIVATE.encode())
         self.git('rm', 'file')
@@ -255,24 +268,131 @@ class GateTests(unittest.TestCase):
             gate.api_publish('pr', None, 'title', 'body', 'topic', self.base)
         self.assertEqual(json.loads(send.call_args.kwargs['data'])['title'], 'Fix parser\n')
 
-    def test_source_bundle_receipt_binds_commit_and_file(self):
-        self.git('remote', 'add', 'origin', str(self.root / 'remote.git'))
-        self.git('init', '--bare', '-q', str(self.root / 'remote.git'))
+    def make_bundle(self, content=b'new source'):
+        remote = self.root / 'remote.git'
+        self.git('init', '--bare', '-q', str(remote))
+        self.git('remote', 'add', 'origin', str(remote))
+        self.git('push', 'origin', self.base + ':refs/heads/main')
+        head = self.commit('Update source', content)
         output = self.root / 'source.bundle'
-        result = subprocess.run(['python3', str(ROOT / 'scripts/publication_gate.py'),
-                                 'bundle', '--output', str(output)], capture_output=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        item = json.loads(result.stdout.splitlines()[-1])
-        self.assertEqual(item['commit'], self.base)
-        self.assertEqual(item['sha256'], gate.digest(output.read_bytes()))
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            gate.create_bundle(str(output), self.base)
+        return output, head, json.loads(out.getvalue())
+
+    def test_incremental_bundle_excludes_historical_content_and_subject(self):
+        self.base = self.commit(PRIVATE, PRIVATE.encode())
+        output, head, item = self.make_bundle()
+        raw = output.read_bytes()
+        header, pack = raw.split(b'\n\n', 1)
+        self.assertNotIn(PRIVATE.encode(), header)
+        gate.scan(header, 'header')
+        self.assertEqual(item['commit'], head)
+        self.assertEqual(item['base'], self.base)
+        self.assertEqual(item['sha256'], gate.digest(raw))
+        Path('audit.pack').write_bytes(pack)
+        self.git('index-pack', str(self.root / 'audit.pack'))
+        listing = self.git('verify-pack', '-v', str(self.root / 'audit.idx')).splitlines()
+        objects = {line.split()[0] for line in listing if gate.re.match(rb'^[a-f0-9]{40} ', line)}
+        expected = set(self.git('rev-list', '--objects', '--no-object-names', head,
+                                '^' + self.base).splitlines())
+        self.assertEqual(objects, expected)
+        self.assertNotIn(self.base.encode(), objects)
+        for value in objects:
+            if self.git('cat-file', '-t', value.decode()).strip() == b'blob':
+                gate.scan(self.git('cat-file', 'blob', value.decode()), 'packed-blob')
+        self.git('checkout', '--detach', self.base)
+        gate.restore_bundle(str(output), self.base, head, item['sha256'])
+        self.assertEqual(self.git('rev-parse', 'HEAD').decode().strip(), head)
+
+    def test_incremental_bundle_restores_in_base_only_checkout(self):
+        output, head, item = self.make_bundle()
+        consumer = self.root / 'consumer'
+        self.git('clone', '--no-local', str(self.root / 'remote.git'), str(consumer))
+        self.git('-C', str(consumer), 'checkout', '--detach', self.base)
+        present = subprocess.run(['git', '-C', str(consumer), 'cat-file', '-e', head], capture_output=True)
+        self.assertNotEqual(present.returncode, 0)
+        os.chdir(consumer)
+        try:
+            gate.restore_bundle(str(output), self.base, head, item['sha256'])
+            self.assertEqual(self.git('rev-parse', 'HEAD').decode().strip(), head)
+        finally:
+            os.chdir(self.root)
+
+    def test_bundle_restore_rejects_extra_inherited_objects(self):
+        output, head, _ = self.make_bundle()
+        header = output.read_bytes().split(b'\n\n', 1)[0] + b'\n\n'
+        objects = self.git('rev-list', '--objects', '--no-object-names', head)
+        pack = self.git('pack-objects', '--stdout', '--no-reuse-delta', data=objects)
+        raw = header + pack
+        output.write_bytes(raw)
+        self.git('checkout', '--detach', self.base)
+        with self.assertRaisesRegex(gate.Blocked, 'bundle-inventory'):
+            gate.restore_bundle(str(output), self.base, head, gate.digest(raw))
+        self.assertEqual(self.git('rev-parse', 'HEAD').decode().strip(), self.base)
+
+    def test_bundle_scan_does_not_exclude_other_public_refs(self):
+        remote = self.root / 'remote.git'
+        self.git('init', '--bare', '-q', str(remote))
+        self.git('remote', 'add', 'origin', str(remote))
+        self.git('push', 'origin', self.base + ':refs/heads/main')
+        head = self.commit('Add file', PRIVATE.encode())
+        self.git('push', 'origin', head + ':refs/heads/other')
+        with self.assertRaisesRegex(gate.Blocked, 'email: blob-'):
+            gate.create_bundle('source.bundle', self.base)
+        self.assertFalse(Path('source.bundle').exists())
+
+    def test_bundle_rejects_unchanged_and_wrong_base(self):
+        with self.assertRaisesRegex(gate.Blocked, 'unchanged-candidate'):
+            gate.create_bundle('source.bundle', self.base)
+        self.commit('Update source')
+        with patch.object(gate, 'advertised', return_value={}), \
+                self.assertRaisesRegex(gate.Blocked, 'base-mismatch'):
+            gate.create_bundle('source.bundle', self.base)
 
     def test_bundle_head_race_blocks(self):
-        with patch.object(gate, 'pre_push'), \
-                patch.object(gate, 'git', side_effect=[self.base.encode(), b'', b'1' * 40 + b' HEAD\n']), \
-                patch('sys.argv', ['gate', 'bundle', '--output', 'bundle']), \
-                contextlib.redirect_stderr(io.StringIO()) as error:
-            self.assertEqual(gate.main(), 1)
-        self.assertIn('bundle-head-race', error.getvalue())
+        output, head, _ = self.make_bundle()
+        output.unlink()
+        real_git = gate.git
+        calls = 0
+        def racing(*args, **kwargs):
+            nonlocal calls
+            if args == ('rev-parse', 'HEAD'):
+                calls += 1
+                if calls == 2:
+                    return self.base.encode()
+            return real_git(*args, **kwargs)
+        with patch.object(gate, 'git', side_effect=racing), \
+                self.assertRaisesRegex(gate.Blocked, 'bundle-head-race'):
+            gate.create_bundle(str(output), self.base)
+        self.assertFalse(output.exists())
+
+    def test_bundle_restore_rejects_tampering_and_wrong_bindings(self):
+        output, head, item = self.make_bundle()
+        original = output.read_bytes()
+        self.git('checkout', '--detach', self.base)
+        for raw, expected_digest, expected_head, category in (
+                (original + b'changed', item['sha256'], head, 'bundle-digest'),
+                (original, item['sha256'], '1' * 40, 'bundle-binding'),
+                (original.replace(b'prerequisite', PRIVATE.encode(), 1), None, head, 'bundle-binding'),
+                (original[:-1], None, head, 'command-failed')):
+            output.write_bytes(raw)
+            with self.assertRaises(gate.Blocked) as error:
+                gate.restore_bundle(str(output), self.base, expected_head,
+                                    expected_digest or gate.digest(raw))
+            self.assertIn(category, str(error.exception))
+            self.assertNotIn(PRIVATE, str(error.exception))
+            self.assertEqual(self.git('rev-parse', 'HEAD').decode().strip(), self.base)
+        output.write_bytes(original)
+        with self.assertRaisesRegex(gate.Blocked, 'base-mismatch'):
+            gate.restore_bundle(str(output), head, self.base, item['sha256'])
+
+    def test_bundle_restore_requires_complete_prerequisite(self):
+        output, head, item = self.make_bundle()
+        self.git('checkout', '--detach', self.base)
+        blob = self.git('rev-parse', self.base + ':file').decode().strip()
+        Path('.git/objects', blob[:2], blob[2:]).unlink()
+        with self.assertRaisesRegex(gate.Blocked, 'command-failed'):
+            gate.restore_bundle(str(output), self.base, head, item['sha256'])
 
     def test_release_transport_blocks_before_request(self):
         release_spec = importlib.util.spec_from_file_location('release', ROOT / 'scripts/publish-release.py')

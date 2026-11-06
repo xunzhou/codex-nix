@@ -44,10 +44,20 @@ as text; LFS object uploads themselves are not covered.
 Each successful check emits a digest binding the ref updates, advertised baseline,
 and checked commit IDs. Git sends those supplied immutable IDs even if a local
 branch moves later. The scheduled updater checks before creating its public source
-artifact, verifies the bundle's HEAD against the checked commit, and records the
-bundle digest. The bundle includes complete reachable history, including already
-public baseline content that was not rescanned. The publish job checks again at push time. Build artifacts are not
-privacy-scanned: existing archive inventory and checksum checks remain in place.
+artifact. Changed candidates use an incremental SHA-1 bundle bound to the exact
+advertised main prerequisite. The artifact contains only the candidate object delta
+against that base; other advertised refs are not scan exclusions. A non-thin pack
+is constructed from those scanned object IDs, and its actual inventory is checked.
+Its minimal header contains only the base/head IDs, a fixed prerequisite label,
+and `HEAD`, never an inherited commit subject. The header is also scanned.
+
+Unchanged candidates upload no source bundle and downstream jobs use the pinned
+base checkout. Changed candidates carry a digest through job outputs. Restoration
+snapshots the downloaded bytes once and validates the digest, exact header,
+complete prerequisite history, pack integrity/inventory, and expected base/head
+before checking out the candidate. Git diagnostics are captured, not echoed.
+The publish job checks again at push time. Build artifacts are not privacy-scanned:
+existing archive inventory and checksum checks remain in place.
 
 ## Public text
 
