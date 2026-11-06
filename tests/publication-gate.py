@@ -134,8 +134,39 @@ class GateTests(unittest.TestCase):
 
     def test_invalid_private_rule_fails_closed(self):
         self.git('config', 'publication.denyPattern', '[')
-        with self.assertRaisesRegex(gate.Blocked, 'invalid-policy'):
-            gate.scan(b'clean', 'fixture')
+        Path('body').write_text('Fix parser.')
+        with patch.object(gate, 'run') as transport, self.assertRaises(gate.Blocked) as error:
+            gate.api_publish('comment', 1, None, 'body', None)
+        transport.assert_not_called()
+        self.assertEqual(str(error.exception), 'invalid-policy: field-body')
+
+    def test_policy_read_failure_blocks_publication_and_redacts_output(self):
+        Path('body').write_text('Fix parser.')
+        result = subprocess.CompletedProcess([], 99, PRIVATE.encode(), PRIVATE.encode())
+        with patch.object(gate.subprocess, 'run', return_value=result), \
+                patch.object(gate, 'run') as transport, self.assertRaises(gate.Blocked) as error:
+            gate.api_publish('comment', 1, None, 'body', None)
+        transport.assert_not_called()
+        self.assertEqual(str(error.exception), 'policy-read: field-body')
+        self.assertNotIn(PRIVATE, str(error.exception))
+
+    def test_bundle_git_fixture_models_unconfigured_private_patterns(self):
+        source = (ROOT / 'tests/bundle.sh').read_text()
+        marker = """cat >"$fake_bin/git" <<'EOF'\n"""
+        mock = source.split(marker, 1)[1].split('\nEOF\n', 1)[0]
+        directory = self.root / 'bin'
+        directory.mkdir()
+        executable = directory / 'git'
+        executable.write_text(mock + '\n')
+        executable.chmod(0o755)
+        with patch.dict(os.environ, {'PATH': str(directory) + os.pathsep + os.environ['PATH']}):
+            self.assertEqual(gate.scan(b'clean', 'fixture'), 'clean')
+            query = subprocess.run(['git', 'config', '--get-all', 'publication.denyPattern'],
+                                   capture_output=True)
+            self.assertEqual((query.returncode, query.stdout, query.stderr), (1, b'', b''))
+            unsupported = subprocess.run(['git', 'config', '--get-all', 'unrelated.setting'],
+                                         capture_output=True)
+            self.assertEqual(unsupported.returncode, 99)
 
     def test_private_rule_redacted(self):
         self.git('config', 'publication.denyPattern', 'synthetic forbidden phrase')

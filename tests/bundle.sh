@@ -61,6 +61,10 @@ apply_shebang() {
 cat >"$fake_bin/git" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ "$#" == 3 && "$1" == config && "$2" == --get-all &&
+  "$3" == publication.denyPattern ]]; then
+  exit 1 # No private patterns configured.
+fi
 [[ "$1" == -C && "$2" == "$FAKE_REPO_ROOT" && "$3" == status &&
   "$4" == --porcelain && "$5" == --untracked-files=no ]] || exit 99
 printf '%b' "${FAKE_GIT_STATUS:-}"
