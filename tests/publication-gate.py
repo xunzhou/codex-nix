@@ -129,9 +129,8 @@ class GateTests(unittest.TestCase):
             gate.check_updates([(safe, 'refs/heads/a'), (bad, 'refs/heads/b')], self.baseline, {IDENTITY})
         self.assertEqual(gate.check_updates([('0' * 40, 'refs/heads/a')], self.baseline, {IDENTITY}), [])
 
-    def test_missing_baseline_fails_closed(self):
-        with self.assertRaises(gate.Blocked):
-            self.check(baseline={'refs/heads/main': '1' * 40})
+    def test_missing_baseline_scans_more_history(self):
+        self.assertEqual(self.check(baseline={'refs/heads/main': '1' * 40}), [self.base])
 
     def test_invalid_private_rule_fails_closed(self):
         self.git('config', 'publication.denyPattern', '[')
@@ -252,6 +251,122 @@ class GateTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 release.GitHub('fixture/repository', 'synthetic').request('/releases', {'body': PRIVATE})
         transport.assert_not_called()
+
+    def test_unfetched_unrelated_remote_ref_is_omitted(self):
+        remote = self.root / 'remote.git'
+        self.git('init', '--bare', '-q', str(remote))
+        self.git('remote', 'add', 'origin', str(remote))
+        self.git('push', 'origin', self.base + ':refs/heads/main')
+        tree = self.git('rev-parse', 'HEAD^{tree}').decode().strip()
+        other = self.git('-C', str(remote), 'commit-tree', tree, data=b'Unrelated\n').decode().strip()
+        self.git('-C', str(remote), 'update-ref', 'refs/pull/99/head', other)
+        head = self.commit('Fix parser')
+        baseline = gate.advertised('origin')
+        self.assertIn('refs/pull/99/head', baseline)
+        self.assertEqual(self.check(baseline=baseline), [head])
+
+    def test_stale_tracking_ref_cannot_hide_new_content(self):
+        remote = self.root / 'remote.git'
+        self.git('init', '--bare', '-q', str(remote))
+        self.git('remote', 'add', 'origin', str(remote))
+        self.git('push', 'origin', self.base + ':refs/heads/main')
+        head = self.commit('Add file', PRIVATE.encode())
+        self.git('update-ref', 'refs/remotes/origin/main', head)
+        with self.assertRaises(gate.Blocked) as error:
+            gate.pre_push(str(remote), f'HEAD {head} refs/heads/topic ' + '0' * 40)
+        self.assertNotIn(PRIVATE, str(error.exception))
+
+    def test_missing_outgoing_history_fails_before_exclusions(self):
+        blob = self.git('rev-parse', self.base + ':file').decode().strip()
+        head = self.commit('Fix parser', b'new code')
+        Path('.git/objects', blob[:2], blob[2:]).unlink()
+        with self.assertRaisesRegex(gate.Blocked, '^command-failed: publication$'):
+            self.check(head=head)
+
+    def test_pr_checks_fixed_destination_despite_origin(self):
+        self.git('remote', 'add', 'origin', 'https://github.com/fixture/unrelated.git')
+        Path('title').write_text('Fix parser')
+        Path('body').write_text('Fix parser.')
+        with patch.object(gate, 'advertised', return_value={}) as advertised, \
+                patch.object(gate, 'run') as send, self.assertRaises(gate.Blocked) as error:
+            gate.api_publish('pr', None, 'title', 'body', 'topic', self.base)
+        advertised.assert_called_once_with('https://github.com/xunzhou/codex-nix.git')
+        send.assert_not_called()
+        self.assertEqual(str(error.exception), 'head-mismatch: pr')
+        with patch.object(gate, 'advertised', return_value={'refs/heads/topic': self.base}) as advertised, \
+                patch.object(gate, 'run', return_value=b'{}') as send, \
+                contextlib.redirect_stdout(io.StringIO()):
+            gate.api_publish('pr', None, 'title', 'body', 'topic', self.base)
+        advertised.assert_called_once_with('https://github.com/xunzhou/codex-nix.git')
+        self.assertIn('repos/xunzhou/codex-nix/pulls', send.call_args.args)
+
+    def test_duplicate_json_keys_rejected_and_redacted(self):
+        cases = [
+            ('{"body":' + json.dumps(PRIVATE) + ',"body":"clean"}').encode(),
+            ('{"' + PRIVATE + '":1,"' + PRIVATE + '":2}').encode(),
+            b'{"body":{"nested":1,"nested":2}}',
+        ]
+        for raw in cases:
+            with self.subTest(raw_length=len(raw)):
+                with self.assertRaises(gate.Blocked) as error:
+                    gate.decode_payload(raw)
+                self.assertEqual(str(error.exception), 'duplicate-json-key: payload')
+                result = subprocess.run(['python3', str(ROOT / 'scripts/publication_gate.py'),
+                                         'payload'], input=raw, capture_output=True)
+                self.assertEqual(result.returncode, 1)
+                self.assertEqual(result.stdout, b'')
+                self.assertNotIn(PRIVATE.encode(), result.stderr)
+        with self.assertRaisesRegex(gate.Blocked, 'duplicate-json-key'):
+            gate.payload_check({'body': 'clean'}, cases[0])
+
+    def test_payload_types_routes_and_error_redaction(self):
+        invalid = [({'body': True}, 'comment'), ({'title': None}, 'pr'),
+                   ({'head': False}, 'pr'), ({'draft': 'true'}, 'release'),
+                   ({'prerelease': 1}, 'release'), ({'name': []}, 'release'),
+                   ({'make_latest': PRIVATE}, 'release'), ({'title': 'clean'}, 'release'),
+                   ({PRIVATE: 'clean'}, 'comment'), ({'body': 'clean'}, PRIVATE)]
+        for data, route in invalid:
+            with self.assertRaises(gate.Blocked) as error:
+                gate.payload_check(data, route=route)
+            self.assertNotIn(PRIVATE, str(error.exception))
+        for data in ({'draft': True, 'prerelease': False}, {'make_latest': 'true'},
+                     {'make_latest': 'legacy'}, {'make_latest': 'false'}):
+            with contextlib.redirect_stdout(io.StringIO()):
+                gate.payload_check(data)
+
+    def test_malformed_json_diagnostic_redacted(self):
+        for raw in (PRIVATE.encode(), b'\xff', b'{"body":NaN}',
+                    '{"body":"clean"}'.encode('utf-16')):
+            with self.assertRaises(gate.Blocked) as error:
+                gate.decode_payload(raw)
+            self.assertNotIn(PRIVATE, str(error.exception))
+
+    def test_unsupported_commit_headers_rejected(self):
+        raw = self.git('cat-file', 'commit', self.base)
+        headers, message = raw.split(b'\n\n', 1)
+        additions = [b'encoding UTF-8', b'gpgsig synthetic\n continuation',
+                     b'mergetag synthetic', b'x-private synthetic value',
+                     headers.splitlines()[-1]]
+        for addition in additions:
+            value = self.git('hash-object', '-t', 'commit', '-w', '--stdin',
+                             data=headers + b'\n' + addition + b'\n\n' + message).decode().strip()
+            with self.assertRaises(gate.Blocked) as error:
+                self.check(head=value)
+            self.assertEqual(str(error.exception), 'unsupported-commit-headers: ' + value)
+            self.assertNotIn('synthetic value', str(error.exception))
+
+    def test_supported_merge_headers(self):
+        tree = self.git('rev-parse', self.base + '^{tree}').decode().strip()
+        other = self.git('commit-tree', tree, data=b'Other root\n').decode().strip()
+        merge = self.git('commit-tree', tree, '-p', self.base, '-p', other,
+                         data=b'Merge changes\n').decode().strip()
+        self.assertEqual(set(self.check(head=merge)), {other, merge})
+
+    def test_grafts_rejected_with_redacted_diagnostic(self):
+        Path('.git/info/grafts').write_text(PRIVATE)
+        with self.assertRaises(gate.Blocked) as error:
+            self.check()
+        self.assertEqual(str(error.exception), 'grafts: repository')
 
     def test_replacement_objects_rejected(self):
         head = self.commit('Fix parser')

@@ -18,11 +18,16 @@ Installation on another computer must be performed and verified there.
 ## Git and source artifacts
 
 The pre-push hook checks the exact object IDs supplied by Git for every outgoing
-ref. Only history currently advertised by the destination is excluded. Fetch all
-its branches and tags first; missing baseline objects block publication. Local
-remote-tracking refs alone are not trusted. Remote deletions after advertisement
+ref. Only available commit objects currently advertised by the destination are
+used as exclusions. Unknown advertised objects and annotated tags are omitted as
+exclusions, causing more scanning. Local remote-tracking refs are never used as
+evidence. The complete outgoing object history must be available before exclusions
+are applied; missing outgoing objects block publication. Lazy fetching is disabled. Remote deletions after advertisement
 do not make previously public content private again.
 
+New commits must have the standard tree, optional parent, author, and committer
+headers, in that order. Additional headers, including signatures, merge tags, and
+encoding declarations, are unsupported and blocked. Normal merges are supported.
 All new commits, both identities, complete messages and trailers, tree paths, and
 every newly reachable blob version are checked. Patch headers are blob content.
 Intermediate versions remain checked even if a later commit removes them. Existing
@@ -31,15 +36,17 @@ New branches and multiple refs use the same destination baseline. Deletions chec
 the ref name and transmit no objects. Lightweight commit tags are supported;
 annotated tags, non-commit targets, other ref namespaces, submodules, shallow
 repositories, replacement objects, and grafts are blocked. Symlink targets are
-scanned as text. Invalid UTF-8, control characters, binary data and blobs over
-8 MiB are blocked, including opaque archives and Git LFS pointers containing
-blocked content. LFS object uploads themselves are not covered.
+scanned as text. Checks reject invalid UTF-8, prohibited control characters, blobs
+over 8 MiB, and specified patterns. These are not general binary or private-data
+detectors: printable UTF-8 and encoded data can pass. Git LFS pointers are checked
+as text; LFS object uploads themselves are not covered.
 
 Each successful check emits a digest binding the ref updates, advertised baseline,
 and checked commit IDs. Git sends those supplied immutable IDs even if a local
 branch moves later. The scheduled updater checks before creating its public source
 artifact, verifies the bundle's HEAD against the checked commit, and records the
-bundle digest. The publish job checks again at push time. Build artifacts are not
+bundle digest. The bundle includes complete reachable history, including already
+public baseline content that was not rescanned. The publish job checks again at push time. Build artifacts are not
 privacy-scanned: existing archive inventory and checksum checks remain in place.
 
 ## Public text
@@ -56,12 +63,16 @@ python3 scripts/publication_gate.py publish release --number 456 \
 ```
 
 These commands target this repository only. `gh` must already be authenticated.
-PR creation verifies the advertised head against the supplied commit ID and emits
+PR creation queries the fixed destination repository, independently of the checkout
+origin, verifies its advertised head against the supplied commit ID, and emits
 a combined head/text receipt. GitHub resolves branch heads server-side; concurrent
 remote writers can still move that branch before or after PR creation.
 
 The wrapper reads each file once, validates the decoded strings, serializes once,
-and sends those same in-memory bytes. Receipts contain hashes, never text. Existing
+and sends those same in-memory bytes. Raw payloads must be UTF-8 JSON with unique
+keys, including nested objects. Fields are restricted by supported route and type;
+unsupported keys, types, and release promotion values are blocked. Receipts contain
+hashes, never text. Existing
 release publishers validate the payload immediately before transmission without
 changing release tags, draft promotion, Latest selection, or permissions.
 
@@ -72,6 +83,10 @@ expressions can be stored in `publication.denyPattern` in local Git configuratio
 configure them through a private channel, never in repository files or command
 logs. Invalid rules block publication. Errors identify categories and object IDs
 or numbered locations, without reproducing matched text or unsafe filenames.
+
+Each newly introduced patch blob is scanned in full. Editing a patch can therefore
+flag previously public addresses in its headers or test fixtures. There is no broad
+exemption for upstream content; review a blocked patch without printing its matches.
 
 Keep public summaries to the technical problem, change, validation, and material
 limitations. Length and pattern checks cannot determine whether every sentence is
