@@ -15,7 +15,7 @@ JOBS = dict(zip(PARTS[1::2], PARTS[2::2]))
 
 def artifact_names(job, action):
     return set(re.findall(
-        rf'uses: actions/{action}-artifact@[^\n]+\n\s+with:\n\s+name: ([^\n]+)', job))
+        rf'uses: actions/{action}-artifact@[^\n]+\n(?:\s+if:[^\n]+\n)?\s+with:\n\s+name: ([^\n]+)', job))
 
 
 class ReleaseWorkflowTests(unittest.TestCase):
@@ -26,6 +26,13 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertLess(prepare.index('scripts/publication_gate.py bundle'),
                         prepare.index('uses: actions/upload-artifact@'))
         self.assertNotIn('git bundle create', prepare)
+        self.assertIn("if: steps.candidate.outputs.changed == 'true'", prepare)
+        self.assertIn('bundle --base \"$base_sha\"', prepare)
+        for name in ('nix', 'publish'):
+            self.assertIn("if: needs.prepare.outputs.changed == 'true'", JOBS[name])
+            self.assertIn('restore-bundle', JOBS[name])
+            self.assertIn('--sha256 \"$BUNDLE_SHA256\"', JOBS[name])
+            self.assertIn('test \"$EXPECTED_SHA\" = \"$EXPECTED_BASE\"', JOBS[name])
         publish = JOBS['publish']
         self.assertLess(publish.index('git config --local core.hooksPath .githooks'),
                         publish.index('git push --force-with-lease='))

@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 import unicodedata
 
 
@@ -262,6 +263,71 @@ def api_publish(kind, number, title, body, head, expected_head=None):
         receipt('pr-head-and-text', expected_head.encode() + b'\n' + payload)
 
 
+def pack_inventory(path):
+    git('index-pack', str(path))
+    listing = git('verify-pack', '-v', str(path.with_suffix('.idx'))).splitlines()
+    return {line.split()[0] for line in listing if re.match(rb'^[a-f0-9]{40} ', line)}
+
+
+def create_bundle(output, base):
+    oid(base)
+    require(len(base) == 40, 'unsupported-object-format', 'bundle')
+    head = git('rev-parse', 'HEAD').decode().strip()
+    require(head != base, 'unchanged-candidate', 'bundle')
+    require(advertised('origin').get('refs/heads/main') == base, 'base-mismatch', 'bundle')
+    git('merge-base', '--is-ancestor', base, head)
+    # Scan against exactly the prerequisite, not other advertised refs: every
+    # object included in this new artifact must be covered even if public elsewhere.
+    check_updates([(head, 'refs/heads/main')], {'refs/heads/main': base}, identities())
+    objects = git('rev-list', '--objects', '--no-object-names', head, '^' + base).splitlines()
+    # Explicit object list, no --revs or --thin: no prerequisite objects/delta bases
+    # may be inserted into the artifact. Verify the resulting pack inventory too.
+    pack = git('pack-objects', '--stdout', '--no-reuse-delta', data=b'\n'.join(objects) + b'\n')
+    target = Path(output).resolve()
+    with tempfile.TemporaryDirectory(dir=target.parent) as directory:
+        pack_path = Path(directory) / 'objects.pack'
+        pack_path.write_bytes(pack)
+        packed = pack_inventory(pack_path)
+        require(packed == set(objects), 'bundle-inventory', 'bundle')
+        header = f'# v2 git bundle\n-{base} prerequisite\n{head} HEAD\n\n'.encode()
+        scan(header, 'bundle-header', 2000)
+        bundle = Path(directory) / 'source.bundle'
+        bundle.write_bytes(header + pack)
+        git('bundle', 'verify', str(bundle))
+        require(git('rev-parse', 'HEAD').decode().strip() == head, 'bundle-head-race', 'bundle')
+        bundle.replace(target)
+    print(json.dumps({'gate': 1, 'kind': 'source-bundle', 'base': base, 'commit': head,
+                      'sha256': digest(header + pack)}, sort_keys=True))
+
+
+def restore_bundle(source, base, head, expected_digest):
+    oid(base)
+    oid(head)
+    require(len(base) == len(head) == 40 and base != head, 'bundle-binding', 'bundle')
+    require(re.fullmatch(r'[a-f0-9]{64}', expected_digest), 'bundle-digest', 'bundle')
+    require(git('rev-parse', 'HEAD').decode().strip() == base, 'base-mismatch', 'checkout')
+    check_updates([(base, 'refs/heads/main')], {'refs/heads/main': base}, set())
+    # Snapshot once, then validate and fetch that private copy, never reopen input.
+    raw = Path(source).read_bytes()
+    require(digest(raw) == expected_digest, 'bundle-digest', 'bundle')
+    header = f'# v2 git bundle\n-{base} prerequisite\n{head} HEAD\n\n'.encode()
+    require(raw.startswith(header), 'bundle-binding', 'bundle')
+    with tempfile.TemporaryDirectory() as directory:
+        bundle = Path(directory) / 'source.bundle'
+        bundle.write_bytes(raw)
+        pack_path = Path(directory) / 'objects.pack'
+        pack_path.write_bytes(raw[len(header):])
+        packed = pack_inventory(pack_path)
+        git('bundle', 'verify', str(bundle))
+        git('fetch', '--no-tags', str(bundle), 'HEAD')
+        require(git('rev-parse', 'FETCH_HEAD').decode().strip() == head,
+                'head-mismatch', 'bundle')
+        git('merge-base', '--is-ancestor', base, head)
+        expected = set(git('rev-list', '--objects', '--no-object-names', head, '^' + base).splitlines())
+        require(packed == expected, 'bundle-inventory', 'bundle')
+        git('checkout', '--detach', head)
+
+
 def install():
     # Repository-local only; preserve unrelated hooks rather than overwrite them.
     root = Path(os.fsdecode(git('rev-parse', '--show-toplevel').strip()))
@@ -291,6 +357,12 @@ def main():
     sub.add_parser('verify')
     bundle = sub.add_parser('bundle')
     bundle.add_argument('--output', required=True)
+    bundle.add_argument('--base', required=True)
+    restore = sub.add_parser('restore-bundle')
+    restore.add_argument('--input', required=True)
+    restore.add_argument('--base', required=True)
+    restore.add_argument('--head', required=True)
+    restore.add_argument('--sha256', required=True)
     check = sub.add_parser('check-head')
     check.add_argument('--remote', default='origin')
     hook = sub.add_parser('pre-push')
@@ -315,14 +387,9 @@ def main():
             require(os.access('.githooks/pre-push', os.X_OK), 'hook-not-executable', 'hook')
             print('Repository hook configuration verified.')
         elif args.command == 'bundle':
-            head = git('rev-parse', 'HEAD').decode().strip()
-            pre_push('origin', f'HEAD {head} refs/heads/main ' + '0' * len(head))
-            git('bundle', 'create', args.output, 'HEAD')
-            listed = git('bundle', 'list-heads', args.output).decode().splitlines()
-            require(listed == [head + ' HEAD'], 'bundle-head-race', 'bundle')
-            with open(args.output, 'rb') as stream:
-                print(json.dumps({'gate': 1, 'kind': 'source-bundle', 'commit': head,
-                                  'sha256': hashlib.file_digest(stream, 'sha256').hexdigest()}))
+            create_bundle(args.output, args.base)
+        elif args.command == 'restore-bundle':
+            restore_bundle(args.input, args.base, args.head, args.sha256)
         elif args.command == 'check-head':
             head = git('rev-parse', 'HEAD').decode().strip()
             pre_push(args.remote, f'HEAD {head} refs/heads/main ' + '0' * len(head))
