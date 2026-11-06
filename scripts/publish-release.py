@@ -19,6 +19,11 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
+_gate_spec = importlib.util.spec_from_file_location(
+    'publication_gate', Path(__file__).with_name('publication_gate.py'))
+_gate = importlib.util.module_from_spec(_gate_spec)
+_gate_spec.loader.exec_module(_gate)
+
 def sha256(path):
     with path.open('rb') as stream:
         return hashlib.file_digest(stream, 'sha256').hexdigest()
@@ -95,7 +100,7 @@ class GitHub:
     def request(self, path, data=None, method=None):
         headers = {'Accept': 'application/vnd.github+json', 'Authorization': f'Bearer {self.token}',
                    'X-GitHub-Api-Version': '2022-11-28'}
-        payload = None if data is None else json.dumps(data).encode()
+        payload = None if data is None else _gate.payload_check(data)
         if payload is not None:
             headers['Content-Type'] = 'application/json'
         headers['Accept-Encoding'] = 'gzip'
