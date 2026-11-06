@@ -96,7 +96,9 @@ jobs:
           fi
           printf 'base=%s\nsha=%s\nchanged=%s\nversion=%s\n' \
             "$base_sha" "$(git rev-parse HEAD)" "$changed" "$version" >>"$GITHUB_OUTPUT"
-          git bundle create "$RUNNER_TEMP/source.bundle" HEAD
+          # Source artifacts are public too; check before uploading the bundle.
+          git config --local publication.identity 'github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>'
+          python3 scripts/publication_gate.py bundle --output "$RUNNER_TEMP/source.bundle"
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: release-source
@@ -218,6 +220,8 @@ jobs:
         env:
           BASE_SHA: ${{ needs.prepare.outputs.base }}
         run: |
+          git config --local publication.identity 'github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>'
+          git config --local core.hooksPath .githooks
           git push --force-with-lease="refs/heads/main:$BASE_SHA" origin HEAD:refs/heads/main
       - name: Publish or verify artifacts and refresh GitHub Latest
         env:

@@ -104,3 +104,7 @@ external_editor_include_reference = true
 - Editor backups or sync may retain copies of the reference text.
 
 </details>
+
+## Contributing
+
+Install and verify the [publication checks](docs/publication.md) before publishing.
