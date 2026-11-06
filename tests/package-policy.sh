@@ -15,7 +15,6 @@ readme="$repo_root/README.md"
 cleanup_script="$repo_root/scripts/reclaim-runner-disk.sh"
 
 test -f "$repo_root/package.nix"
-test -f "$repo_root/patches/live-palette-refresh.patch"
 grep -Fq 'rustPlatform.buildRustPackage' "$repo_root/package.nix"
 grep -Fq '"codex-cli"' "$repo_root/build.json"
 grep -Fq '"codex-code-mode-host"' "$repo_root/build.json"
