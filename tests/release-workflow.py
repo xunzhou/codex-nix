@@ -19,6 +19,19 @@ def artifact_names(job, action):
 
 
 class ReleaseWorkflowTests(unittest.TestCase):
+    def test_fresh_update_checks_before_publication(self):
+        prepare = JOBS['prepare']
+        self.assertLess(prepare.index('python3 tests/publication-gate.py'),
+                        prepare.index('name: Prepare candidate without publishing it'))
+        self.assertLess(prepare.index('scripts/publication_gate.py bundle'),
+                        prepare.index('uses: actions/upload-artifact@'))
+        self.assertNotIn('git bundle create', prepare)
+        publish = JOBS['publish']
+        self.assertLess(publish.index('git config --local core.hooksPath .githooks'),
+                        publish.index('git push --force-with-lease='))
+        self.assertIn('git config --local publication.identity', prepare)
+        self.assertIn('git config --local publication.identity', publish)
+
     def test_one_compilation_exports_both_formats(self):
         self.assertNotIn('native', JOBS)
         self.assertEqual(len(re.findall(r'nix .* build .*\.#codex\b', WORKFLOW)), 1)

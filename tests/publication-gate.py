@@ -68,6 +68,19 @@ class GateTests(unittest.TestCase):
         self.commit('Fix parser', b'clean\n')
         self.assertEqual(len(self.check()), 1)
 
+    def test_public_signed_history_excluded_but_new_signed_commit_blocked(self):
+        raw = self.git('cat-file', 'commit', self.base)
+        headers, message = raw.split(b'\n\n', 1)
+        signed = self.git('hash-object', '-t', 'commit', '-w', '--stdin',
+                          data=headers + b'\ngpgsig synthetic\n signature continuation\n\n'
+                          + message).decode().strip()
+        with self.assertRaisesRegex(gate.Blocked, 'unsupported-commit-headers'):
+            self.check(head=signed)
+        self.git('reset', '--hard', signed)
+        self.baseline = {'refs/heads/main': signed}
+        head = self.commit('Update source', b'new source')
+        self.assertEqual(self.check(), [head])
+
     def test_intermediate_deleted_blob_rejected(self):
         self.commit('Add file', PRIVATE.encode())
         self.git('rm', 'file')

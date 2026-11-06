@@ -56,6 +56,8 @@ jobs:
         run: bash scripts/setup-mergiraf.sh
       - name: Test Rust conflict resolver
         run: python3 tests/mergiraf.py
+      - name: Test publication checks
+        run: python3 tests/publication-gate.py
       - name: Prepare candidate without publishing it
         id: candidate
         env:
