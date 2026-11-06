@@ -169,6 +169,48 @@ class RebaseTests(unittest.TestCase):
         ):
             self.assertIsNone(m.resolve_interrupt_signature(changed))
 
+    def test_palette_event_entry_conflict(self):
+        entry = (
+            "    pub(crate) async fn handle_tui_event(\n"
+            "        &mut self,\n"
+            "        tui: &mut tui::Tui,\n"
+            "        app_server: &mut AppServerSession,\n"
+            "        event: TuiEvent,\n"
+            "    ) -> Result<AppRunControl> {\n")
+        upstream = (
+            "        self.transcript_view\n"
+            "            .sync_patch_approval(self.chat_widget.current_patch_approval());\n")
+        refresh = "        self.refresh_syntax_theme_from_terminal_palette();\n"
+        tail = "        tui.link_hover.observe(&event);\n"
+        conflict = (entry + "<<<<<<< ours\n" + upstream + "||||||| base\n"
+                    + "=======\n" + refresh + ">>>>>>> theirs\n" + tail)
+        expected = entry + upstream + refresh + tail
+        self.assertEqual(m.resolve_palette_event_entry(conflict), expected)
+        for changed in (
+            conflict.replace('sync_patch_approval', 'other_sync'),
+            conflict.replace('handle_tui_event', 'other_handler'),
+            conflict.replace('||||||| base\n', '||||||| base\nold behavior\n'),
+            conflict.replace(refresh, refresh + '        other_call();\n'),
+            conflict + conflict,
+            conflict + "<<<<<<< ours\nother conflict\n=======\nother\n>>>>>>> theirs\n",
+        ):
+            self.assertIsNone(m.resolve_palette_event_entry(changed))
+        with tempfile.TemporaryDirectory() as tmp:
+            tree = Path(tmp)
+            name = 'codex-rs/tui/src/app.rs'
+            path = tree / name
+            path.parent.mkdir(parents=True)
+            path.write_text(conflict)
+            with patch.object(m, 'git', return_value=name.encode() + b'\0'):
+                self.assertTrue(m.resolve_hint_snapshots(tree))
+            self.assertEqual(path.read_text(), expected)
+            path.write_text(conflict)
+            other = tree / 'other.txt'
+            other.write_text('unrecognized conflict')
+            with patch.object(m, 'git', return_value=(name + '\0other.txt\0').encode()):
+                self.assertFalse(m.resolve_hint_snapshots(tree))
+            self.assertEqual(path.read_text(), conflict)
+
     def test_interrupt_resolver_preserves_all_or_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:
             tree = Path(tmp)
