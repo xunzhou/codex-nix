@@ -124,3 +124,24 @@ its Git index, source identity, failing patch and commit, and replay instruction
 Inspect `tree` with `git status` and `git diff --cc`; use a copy for destructive
 replay commands. This packet covers unresolved patch conflicts, not every build
 or network failure.
+
+## Build validation
+
+Shipped binaries use Cargo's optimized `release` profile. Patch regression tests
+use upstream's `ci-test` profile to avoid release optimization and thin LTO for
+test executables. The test selectors are unchanged; release binaries retain
+version/help smoke checks and patch-marker checks during installation.
+
+The profile preflight checks the rendered Nix settings and exercises the nextest
+selectors on a small fixture. The full build runs the selected regressions from
+the patched source:
+
+```sh
+nix build -L .#codex-static
+```
+
+On the local Codex 0.166.0 comparison, test compilation fell from 117m 30s with
+`release` to 25m 04s with `ci-test` (about 79% less time). Both runs passed the
+same 155 regression tests, compared by exact test name. Test execution took
+2.4s and 3.8s respectively. These are single-run measurements, not CI timing
+guarantees; no reliable peak-memory comparison was collected.
