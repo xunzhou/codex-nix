@@ -311,10 +311,24 @@ class GateTests(unittest.TestCase):
         self.git('-C', str(consumer), 'checkout', '--detach', self.base)
         present = subprocess.run(['git', '-C', str(consumer), 'cat-file', '-e', head], capture_output=True)
         self.assertNotEqual(present.returncode, 0)
+        # Restoration must not leave maintenance writing into the checkout after
+        # it returns, even when the caller enables automatic background work.
+        self.git('-C', str(consumer), 'config', 'maintenance.auto', 'true')
+        self.git('-C', str(consumer), 'config', 'maintenance.autoDetach', 'true')
+        trace = self.root / 'restore-trace.json'
         os.chdir(consumer)
         try:
-            gate.restore_bundle(str(output), self.base, head, item['sha256'])
+            with patch.dict(os.environ, {'GIT_TRACE2_EVENT': str(trace)}):
+                gate.restore_bundle(str(output), self.base, head, item['sha256'])
             self.assertEqual(self.git('rev-parse', 'HEAD').decode().strip(), head)
+            events = [json.loads(line) for line in trace.read_text().splitlines()]
+            self.assertTrue(any(event.get('event') == 'cmd_name'
+                                and event.get('name') == 'fetch' for event in events))
+            maintenance = [event['argv'] for event in events
+                           if event.get('event') == 'child_start'
+                           and event.get('argv', [])[:2] in
+                           (['git', 'maintenance'], ['git', 'gc'])]
+            self.assertEqual(maintenance, [])
         finally:
             os.chdir(self.root)
 

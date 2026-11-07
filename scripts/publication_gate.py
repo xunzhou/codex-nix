@@ -319,7 +319,9 @@ def restore_bundle(source, base, head, expected_digest):
         pack_path.write_bytes(raw[len(header):])
         packed = pack_inventory(pack_path)
         git('bundle', 'verify', str(bundle))
-        git('fetch', '--no-tags', str(bundle), 'HEAD')
+        # Keep restoration bounded: detached maintenance can outlive this command
+        # and race with validation or cleanup of an ephemeral checkout.
+        git('fetch', '--no-auto-maintenance', '--no-tags', str(bundle), 'HEAD')
         require(git('rev-parse', 'FETCH_HEAD').decode().strip() == head,
                 'head-mismatch', 'bundle')
         git('merge-base', '--is-ancestor', base, head)
