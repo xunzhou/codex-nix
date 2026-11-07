@@ -352,6 +352,8 @@ create_payload=$("$jq_bin" -n \
   --arg name "$CODEX_BUNDLE_TAG" \
   --arg body "Immutable Nix closure bundle for Codex $CODEX_BUNDLE_VERSION" \
   '{tag_name: $tag, name: $name, body: $body}')
+# Scan the same in-memory JSON passed to curl; do not reopen a mutable file.
+printf '%s' "$create_payload" | python3 "$repo_root/scripts/publication_gate.py" payload
 created_metadata_path="$temporary_directory/created-release.json"
 if create_http_status=$(github_api -X POST --data "$create_payload" \
   -H 'Content-Type: application/json' \
