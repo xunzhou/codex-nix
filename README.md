@@ -104,3 +104,23 @@ external_editor_include_reference = true
 - Editor backups or sync may retain copies of the reference text.
 
 </details>
+
+## Update recovery
+
+Update preparation validates source, patches, and Cargo dependencies in a temporary
+Git checkout. Preparation failures leave the caller's manifest, patches, and index
+unchanged. Only validated candidates are copied back. Run updates in a dedicated
+worktree without concurrent edits.
+
+To retain an unresolved patch replay locally:
+
+```sh
+CODEX_FAILURE_DIR=/tmp/codex-update-failures bash scripts/update.sh
+```
+
+CI uploads an `update-failure` artifact when patch replay cannot resolve a conflict
+(retained for 14 days). Each packet contains the conflicted source tree including
+its Git index, source identity, failing patch and commit, and replay instructions.
+Inspect `tree` with `git status` and `git diff --cc`; use a copy for destructive
+replay commands. This packet covers unresolved patch conflicts, not every build
+or network failure.

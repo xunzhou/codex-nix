@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import tarfile
 import tempfile
@@ -19,6 +20,43 @@ def command(*args, **kwargs):
 
 
 def update(root, version):
+    """Validate in an isolated Git tree before exposing candidate files."""
+    with tempfile.TemporaryDirectory(prefix='codex-candidate-') as directory:
+        candidate = Path(directory) / 'repo'
+        shutil.copytree(root, candidate, ignore=shutil.ignore_patterns(
+            '.git', '.worktrees', '.scratch', '.native-cache', 'result',
+            'result-static', 'dist', '__pycache__'), symlinks=True)
+        command('git', 'init', '-q', str(candidate))
+        command('git', 'add', '.', cwd=candidate)
+        prepare(candidate, version)
+        data = json.loads((candidate / 'build.json').read_text())
+        patches = data['releases'][version]['patches']
+        # Existing reviewed files are never overwritten. Publish the manifest last.
+        for name in patches:
+            destination = root / 'patches' / name
+            content = (candidate / 'patches' / name).read_bytes()
+            if destination.exists() and destination.read_bytes() != content:
+                raise ValueError(f'refusing to overwrite patch: {name}')
+        created = []
+        try:
+            for name in patches:
+                destination = root / 'patches' / name
+                if not destination.exists():
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    with destination.open('xb') as stream:
+                        created.append(destination)
+                        stream.write((candidate / 'patches' / name).read_bytes())
+            # Keep Git-backed flake evaluation aware of new files on success.
+            command('git', 'add', '--intent-to-add', '--',
+                    *(f'patches/{name}' for name in patches), cwd=root)
+            (root / 'build.json').write_bytes((candidate / 'build.json').read_bytes())
+        except BaseException:
+            for path in created:
+                path.unlink(missing_ok=True)
+            raise
+
+
+def prepare(root, version):
     manifest = root / 'build.json'
     original = manifest.read_bytes()
     data = json.loads(original)

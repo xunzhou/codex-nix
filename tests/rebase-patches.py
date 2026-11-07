@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import hashlib
+import json
+import os
 import importlib.util
 from pathlib import Path
 import subprocess
@@ -40,8 +42,15 @@ class RebaseTests(unittest.TestCase):
             if rename:
                 (source / 'renamed.snap').write_text(base)
             if unrelated:
-                with self.assertRaises(subprocess.CalledProcessError):
-                    m.rebase(root, source, previous, ['example.patch'], '0.2.0')
+                with patch.dict(os.environ, {'CODEX_FAILURE_DIR': str(root / 'failures')}):
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        m.rebase(root, source, previous, ['example.patch'], '0.2.0')
+                packet, = (root / 'failures').iterdir()
+                metadata = json.loads((packet / 'failure.json').read_text())
+                self.assertEqual(metadata['patch'], 'example.patch')
+                self.assertEqual(metadata['previous_source'], previous['source'])
+                self.assertTrue(m.git(packet / 'tree', 'ls-files', '--unmerged'))
+                self.assertTrue((packet / 'README.txt').is_file())
                 self.assertFalse((root / 'patches/0.2.0').exists())
                 self.assertEqual((source / 'kept.snap').read_text(), base)
                 return
@@ -92,8 +101,15 @@ class RebaseTests(unittest.TestCase):
             (source / 'example').write_text(new)
             (source / 'link').symlink_to('example')
             if conflict:
-                with self.assertRaises(subprocess.CalledProcessError):
-                    m.rebase(root, source, previous, ['example.patch'], '0.2.0')
+                with patch.dict(os.environ, {'CODEX_FAILURE_DIR': str(root / 'failures')}):
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        m.rebase(root, source, previous, ['example.patch'], '0.2.0')
+                packet, = (root / 'failures').iterdir()
+                metadata = json.loads((packet / 'failure.json').read_text())
+                self.assertEqual(metadata['patch'], 'example.patch')
+                self.assertEqual(metadata['previous_source'], previous['source'])
+                self.assertTrue(m.git(packet / 'tree', 'ls-files', '--unmerged'))
+                self.assertTrue((packet / 'README.txt').is_file())
                 self.assertFalse((root / 'patches/0.2.0').exists())
                 self.assertEqual((source / 'example').read_text(), new)
             else:
