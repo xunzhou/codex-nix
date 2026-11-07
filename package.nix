@@ -44,6 +44,10 @@ rustPlatform.buildRustPackage ({
   # start a word: a substring also selects descendants/reschedule/coalesces tests.
   doCheck = true;
   useNextest = true;
+  # Test compilation should not pay for release optimization and thin LTO.
+  # Installed binaries still come from the release profile below.
+  buildType = "release";
+  checkType = "ci-test";
   cargoTestFlags = [
     "-p" "codex-core" "-p" "codex-tui" "-p" "codex-config" "--lib" "--build-jobs" "2" "-E"
     # stdenv splits this environment variable on whitespace: keep one token.

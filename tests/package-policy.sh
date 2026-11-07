@@ -210,6 +210,11 @@ done
 
 codex_derivation=$(nix --extra-experimental-features 'nix-command flakes' \
   derivation show .#codex) || fail 'could not inspect the Codex derivation'
+[[ $(jq -r '.derivations | to_entries[0].value.env.cargoBuildType' <<<"$codex_derivation") == release ]] ||
+  fail 'shipped binaries must use the release profile'
+[[ $(jq -r '.derivations | to_entries[0].value.env.cargoCheckType' <<<"$codex_derivation") == ci-test ]] ||
+  fail 'regression tests must use the ci-test profile'
+
 codex_pre_build=$(jq -r \
   '.derivations | to_entries[0].value.env.preBuild // ""' \
   <<<"$codex_derivation")

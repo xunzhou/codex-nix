@@ -63,6 +63,7 @@ jobs:
           REQUESTED_VERSION: ${{ inputs.version }}
           EVENT_NAME: ${{ github.event_name }}
           CODEX_UPDATE_PREPARE_ONLY: '1'
+          CODEX_FAILURE_DIR: ${{ runner.temp }}/update-failure
         run: |
           set -euo pipefail
           base_sha=$(git rev-parse HEAD)
@@ -97,6 +98,15 @@ jobs:
           printf 'base=%s\nsha=%s\nchanged=%s\nversion=%s\n' \
             "$base_sha" "$(git rev-parse HEAD)" "$changed" "$version" >>"$GITHUB_OUTPUT"
           git bundle create "$RUNNER_TEMP/source.bundle" HEAD
+      - name: Preserve failed patch replay
+        if: failure()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: update-failure
+          path: ${{ runner.temp }}/update-failure
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: release-source
