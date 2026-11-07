@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import hashlib
+import json
+import os
 import importlib.util
 from pathlib import Path
 import subprocess
@@ -40,8 +42,17 @@ class RebaseTests(unittest.TestCase):
             if rename:
                 (source / 'renamed.snap').write_text(base)
             if unrelated:
-                with self.assertRaises(subprocess.CalledProcessError):
-                    m.rebase(root, source, previous, ['example.patch'], '0.2.0')
+                with patch.dict(os.environ, {'CODEX_FAILURE_DIR': str(root / 'failures')}):
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        m.rebase(root, source, previous, ['example.patch'], '0.2.0')
+                packet, = (root / 'failures').iterdir()
+                metadata = json.loads((packet / 'failure.json').read_text())
+                self.assertEqual(metadata['patch'], 'example.patch')
+                self.assertEqual(metadata['previous_source'], previous['source'])
+                self.assertTrue(m.git(packet / 'tree', 'ls-files', '--unmerged'))
+                self.assertTrue((packet / 'README.txt').is_file())
+                self.assertEqual((packet / 'failure.patch').read_bytes(),
+                                 (root / 'patches/example.patch').read_bytes())
                 self.assertFalse((root / 'patches/0.2.0').exists())
                 self.assertEqual((source / 'kept.snap').read_text(), base)
                 return
@@ -92,10 +103,27 @@ class RebaseTests(unittest.TestCase):
             (source / 'example').write_text(new)
             (source / 'link').symlink_to('example')
             if conflict:
-                with self.assertRaises(subprocess.CalledProcessError):
-                    m.rebase(root, source, previous, ['example.patch'], '0.2.0')
+                with patch.dict(os.environ, {'CODEX_FAILURE_DIR': str(root / 'failures')}):
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        m.rebase(root, source, previous, ['example.patch'], '0.2.0')
+                packet, = (root / 'failures').iterdir()
+                metadata = json.loads((packet / 'failure.json').read_text())
+                self.assertEqual(metadata['patch'], 'example.patch')
+                self.assertEqual(metadata['previous_source'], previous['source'])
+                self.assertTrue(m.git(packet / 'tree', 'ls-files', '--unmerged'))
+                self.assertTrue((packet / 'README.txt').is_file())
                 self.assertFalse((root / 'patches/0.2.0').exists())
                 self.assertEqual((source / 'example').read_text(), new)
+                checked = root / 'checked.json'
+                subprocess.run(['python3', str(ROOT / 'scripts/publication_gate.py'),
+                                'recovery', '--input', str(root / 'failures'),
+                                '--output', str(checked)], cwd=ROOT, check=True, capture_output=True)
+                exported, = json.loads(checked.read_bytes())['packets']
+                self.assertEqual(exported['metadata'], metadata)
+                self.assertEqual(exported['patch'], (root / 'patches/example.patch').read_text())
+                self.assertEqual(set(exported['conflicts']['example']['stages']), {'1', '2', '3'})
+                self.assertIn('conflicting upstream', exported['conflicts']['example']['worktree'])
+                self.assertTrue(m.git(packet / 'tree', 'ls-files', '--unmerged'))
             else:
                 names = m.rebase(root, source, previous, ['example.patch'], '0.2.0')
                 self.assertEqual(names, ['0.2.0/example.patch'])

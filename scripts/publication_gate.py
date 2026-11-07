@@ -330,6 +330,88 @@ def restore_bundle(source, base, head, expected_digest):
         git('checkout', '--detach', head)
 
 
+def recovery_artifact(source, output):
+    """Publish selected conflict text, never a raw recovery tree or Git metadata."""
+    target = Path(output)
+    require(not target.exists() and not target.is_symlink(), 'existing-output', 'recovery')
+    root = Path(source)
+    if not root.exists():
+        return  # Other preparation failures need not produce a replay packet.
+    require(root.is_dir() and not root.is_symlink(), 'unsupported-path', 'recovery')
+
+    def read_file(path, location):
+        require(path.is_file() and not path.is_symlink(), 'unsupported-file', location)
+        require(path.stat().st_size <= 8 * 1024 * 1024, 'size-limit', location)
+        return scan(path.read_bytes(), location)
+
+    def scan_json(value):
+        if isinstance(value, str):
+            scan(value.encode(), 'recovery-metadata')
+        elif isinstance(value, dict):
+            for key, item in value.items():
+                scan_json(key)
+                scan_json(item)
+        elif isinstance(value, list):
+            for item in value:
+                scan_json(item)
+
+    packets = []
+    for packet in sorted(root.iterdir()):
+        require(packet.is_dir() and not packet.is_symlink(), 'unsupported-path', 'recovery')
+        metadata = decode_payload(read_file(packet / 'failure.json', 'recovery-metadata').encode())
+        scan_json(metadata)  # JSON escapes must not conceal prohibited text.
+        patch = read_file(packet / 'failure.patch', 'recovery-patch')
+        tree = packet / 'tree'
+        require(tree.is_dir() and not tree.is_symlink(), 'unsupported-path', 'recovery')
+        require((tree / '.git').is_dir() and not (tree / '.git').is_symlink(),
+                'unsupported-path', 'recovery')
+
+        def tree_git(*args):
+            return git('-c', 'core.fsmonitor=false', '-C', str(tree), *args)
+
+        conflicts = {}
+        for entry in tree_git('ls-files', '--unmerged', '-z').split(b'\0'):
+            if not entry:
+                continue
+            fields, name = entry.split(b'\t', 1)
+            mode, value, stage = fields.split()
+            require(mode in (b'100644', b'100755') and stage in (b'1', b'2', b'3'),
+                    'unsupported-index-entry', 'recovery')
+            path = scan(name, 'recovery-path')
+            parts = path.split('/')
+            require(all(part not in ('', '.', '..', '.git') for part in parts),
+                    'unsupported-path', 'recovery')
+            item = conflicts.setdefault(path, {'stages': {}})
+            oid(value.decode())
+            require(tree_git('cat-file', '-t', value.decode()).strip() == b'blob',
+                    'unsupported-object', 'recovery')
+            require(int(tree_git('cat-file', '-s', value.decode())) <= 8 * 1024 * 1024,
+                    'size-limit', 'recovery-stage')
+            item['stages'][stage.decode()] = {
+                'mode': mode.decode(), 'text': scan(tree_git('cat-file', 'blob', value.decode()), 'recovery-stage')}
+        require(bool(conflicts), 'missing-conflicts', 'recovery')
+        for path, item in conflicts.items():
+            file = tree
+            for part in path.split('/'):
+                file = file / part
+                require(not file.is_symlink(), 'unsupported-path', 'recovery')
+            if file.exists():
+                item['worktree'] = read_file(file, 'recovery-worktree')
+            else:
+                item['worktree'] = None  # A deleted conflict side is meaningful.
+        packets.append({'metadata': metadata, 'patch': patch, 'conflicts': conflicts})
+    if not packets:
+        return
+    raw = json.dumps({'format': 1, 'packets': packets}, ensure_ascii=False, sort_keys=True).encode() + b'\n'
+    scan(raw, 'recovery-artifact')
+    # Publish only after every selected byte passes; never leave a partial output.
+    with tempfile.TemporaryDirectory(dir=target.parent) as directory:
+        checked = Path(directory) / 'checked.json'
+        checked.write_bytes(raw)
+        checked.replace(target)
+    receipt('recovery-artifact', raw)
+
+
 def install():
     # Repository-local only; preserve unrelated hooks rather than overwrite them.
     root = Path(os.fsdecode(git('rev-parse', '--show-toplevel').strip()))
@@ -357,6 +439,9 @@ def main():
     sub = parser.add_subparsers(dest='command', required=True)
     sub.add_parser('install')
     sub.add_parser('verify')
+    recovery = sub.add_parser('recovery')
+    recovery.add_argument('--input', required=True)
+    recovery.add_argument('--output', required=True)
     bundle = sub.add_parser('bundle')
     bundle.add_argument('--output', required=True)
     bundle.add_argument('--base', required=True)
@@ -388,6 +473,8 @@ def main():
                     'hook-not-installed', 'config')
             require(os.access('.githooks/pre-push', os.X_OK), 'hook-not-executable', 'hook')
             print('Repository hook configuration verified.')
+        elif args.command == 'recovery':
+            recovery_artifact(args.input, args.output)
         elif args.command == 'bundle':
             create_bundle(args.output, args.base)
         elif args.command == 'restore-bundle':

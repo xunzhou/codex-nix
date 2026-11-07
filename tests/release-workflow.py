@@ -19,6 +19,22 @@ def artifact_names(job, action):
 
 
 class ReleaseWorkflowTests(unittest.TestCase):
+    def test_recovery_upload_requires_successful_scan_on_failure_path(self):
+        prepare = JOBS['prepare']
+        check = prepare.split('name: Check failed patch replay diagnostics', 1)[1].split(
+            'name: Preserve checked patch replay diagnostics', 1)[0]
+        self.assertIn("if: failure() && steps.candidate.outcome == 'failure'", check)
+        self.assertIn('set -euo pipefail', check)
+        self.assertLess(check.index('scripts/publication_gate.py recovery'),
+                        check.index("echo 'checked=true'"))
+        upload = prepare.split('name: Preserve checked patch replay diagnostics', 1)[1].split(
+            'retention-days: 14', 1)[0]
+        self.assertIn("if: failure() && steps.recovery.outcome == 'success' && steps.recovery.outputs.checked == 'true'", upload)
+        self.assertIn('path: ${{ runner.temp }}/update-failure.json\n', upload)
+        self.assertIn('if-no-files-found: error', upload)
+        self.assertNotIn('include-hidden-files', prepare)
+        self.assertNotIn('continue-on-error', check + upload)
+
     def test_fresh_update_checks_before_publication(self):
         prepare = JOBS['prepare']
         self.assertLess(prepare.index('python3 tests/publication-gate.py'),

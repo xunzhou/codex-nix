@@ -37,10 +37,43 @@ class UpdateTests(unittest.TestCase):
                 archive.add(self.source.parent, arcname='release')
         return subprocess.CompletedProcess(args, 0, stdout='sha256-source\n')
 
+    def test_isolated_failure_preserves_files_and_index(self):
+        subprocess.run(['git', 'init', '-q', str(self.root)], check=True)
+        subprocess.run(['git', '-C', str(self.root), 'add', '.'], check=True)
+        index = (self.root / '.git/index').read_bytes()
+        before = self.manifest.read_bytes()
+        def fail(candidate, version):
+            (candidate / 'patches/0.2.0').mkdir()
+            (candidate / 'patches/0.2.0/new.patch').write_text('candidate')
+            (candidate / 'build.json').write_text('{}')
+            raise ValueError('vendor unavailable')
+        with mock.patch.object(UPDATER, 'prepare', side_effect=fail):
+            with self.assertRaisesRegex(ValueError, 'vendor unavailable'):
+                UPDATER.update(self.root, '0.2.0')
+        self.assertEqual(self.manifest.read_bytes(), before)
+        self.assertEqual((self.root / '.git/index').read_bytes(), index)
+        self.assertFalse((self.root / 'patches/0.2.0').exists())
+
+    def test_isolated_success_publishes_validated_candidate(self):
+        subprocess.run(['git', 'init', '-q', str(self.root)], check=True)
+        subprocess.run(['git', '-C', str(self.root), 'add', '.'], check=True)
+        def prepare(candidate, version):
+            (candidate / 'patches/0.2.0').mkdir()
+            (candidate / 'patches/0.2.0/new.patch').write_text('candidate')
+            data = {'default_version': version, 'releases': {
+                version: {'patches': ['0.2.0/new.patch']}}}
+            (candidate / 'build.json').write_text(json.dumps(data))
+        with mock.patch.object(UPDATER, 'prepare', side_effect=prepare):
+            UPDATER.update(self.root, '0.2.0')
+        self.assertEqual(json.loads(self.manifest.read_text())['default_version'], '0.2.0')
+        self.assertEqual((self.root / 'patches/0.2.0/new.patch').read_text(), 'candidate')
+        tracked = subprocess.check_output(['git', '-C', str(self.root), 'ls-files'], text=True)
+        self.assertIn('patches/0.2.0/new.patch', tracked)
+
     def test_updates_shared_source_pins_and_replaces_previous_release(self):
         mismatch = subprocess.CompletedProcess([], 1, stdout='', stderr='got: sha256-'+'A'*43+'=')
         with mock.patch.object(UPDATER, 'command', side_effect=self.command) as commands, mock.patch.object(UPDATER.subprocess, 'run', return_value=mismatch):
-            UPDATER.update(self.root, '0.2.0')
+            UPDATER.prepare(self.root, '0.2.0')
         result = json.loads(self.manifest.read_text())
         self.assertEqual(result['default_version'], '0.2.0')
         self.assertEqual(list(result['releases']), ['0.2.0'])
@@ -53,14 +86,14 @@ class UpdateTests(unittest.TestCase):
         (self.source / 'Cargo.lock').write_text('[[package]]\nname="v8"\nversion="2.0.0"\n')
         with mock.patch.object(UPDATER, 'command', side_effect=self.command):
             with self.assertRaisesRegex(ValueError, 'review the shared'):
-                UPDATER.update(self.root, '0.2.0')
+                UPDATER.prepare(self.root, '0.2.0')
         self.assertEqual(self.manifest.read_bytes(), before)
 
     def test_failed_vendor_resolution_restores_original_manifest(self):
         before = self.manifest.read_bytes()
         with mock.patch.object(UPDATER, 'command', side_effect=self.command), mock.patch.object(UPDATER.subprocess, 'run', return_value=subprocess.CompletedProcess([],1,stdout='',stderr='network unavailable')):
             with self.assertRaisesRegex(ValueError, 'could not resolve'):
-                UPDATER.update(self.root, '0.2.0')
+                UPDATER.prepare(self.root, '0.2.0')
         self.assertEqual(self.manifest.read_bytes(), before)
 
     def test_new_patch_stack_is_visible_before_vendor_evaluation(self):
@@ -118,7 +151,7 @@ class UpdateTests(unittest.TestCase):
                      mock.patch.object(UPDATER.subprocess, 'run', side_effect=vendor), \
                      mock.patch.object(UPDATER.importlib.util, 'spec_from_file_location'), \
                      mock.patch.object(UPDATER.importlib.util, 'module_from_spec', return_value=module):
-                    UPDATER.update(root, '0.2.0')
+                    UPDATER.prepare(root, '0.2.0')
                 result = json.loads((root / 'build.json').read_text())
                 self.assertEqual(result['releases']['0.2.0']['patches'], selected)
 

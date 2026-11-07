@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Rebase a patch stack using verified old source; never guess conflict resolutions."""
 import hashlib
+import json
 import os
 import re
 from pathlib import Path
@@ -185,6 +186,24 @@ def rebase(root, source, previous, patches, version):
                 git(tree, '-c', 'merge.conflictStyle=diff3', 'cherry-pick', '--no-commit', commit)
             except subprocess.CalledProcessError:
                 if not resolve_hint_snapshots(tree):
+                    output = os.environ.get('CODEX_FAILURE_DIR')
+                    if output:
+                        destination = Path(output).resolve()
+                        destination.mkdir(parents=True, exist_ok=True)
+                        packet = Path(tempfile.mkdtemp(prefix='replay-', dir=destination))
+                        shutil.copytree(tree, packet / 'tree', symlinks=True)
+                        (packet / 'failure.json').write_text(json.dumps({
+                            'version': version, 'patch': patches[index],
+                            'patch_index': index, 'commit': commit,
+                            'previous_source': previous['source'],
+                        }, indent=2) + '\n')
+                        (packet / 'failure.patch').write_bytes((root / 'patches' / patches[index]).read_bytes())
+                        (packet / 'README.txt').write_text(
+                            'The tree directory preserves the failed cherry-pick and Git index.\n'
+                            'Inspect: git -C tree status; git -C tree diff --cc\n'
+                            'Replay from its pre-conflict HEAD in a COPY of tree:\n'
+                            f'git reset --hard HEAD && git -c merge.conflictStyle=diff3 cherry-pick --no-commit {commit}\n')
+                        print(f'Patch replay failure preserved in {packet}', flush=True)
                     raise
             diff = git(tree, 'diff', '--cached', '--binary', '--full-index')
             if not diff:

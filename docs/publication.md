@@ -59,6 +59,27 @@ before checking out the candidate. Git diagnostics are captured, not echoed.
 The publish job checks again at push time. Build artifacts are not privacy-scanned:
 existing archive inventory and checksum checks remain in place.
 
+## Recovery artifacts
+
+Local failed-replay packets retain the full source tree and Git index. They are
+not publication inputs: raw Git metadata, compressed objects, and unrelated
+source files are never uploaded by the recovery path.
+
+`publication_gate.py recovery --input DIRECTORY --output FILE` builds a JSON
+diagnostic packet containing metadata, the original failing patch, and each
+unmerged path's text stages, modes, and working file (or a deletion marker).
+It scans decoded metadata, paths, and every selected file before serializing and
+scanning the exact output bytes. Binary or symlink conflicts and prohibited text
+block the entire artifact. Existing output is refused. Missing recovery input
+produces no output. CI uploads only this checked JSON after a successful gate
+step, even when candidate preparation failed; a scan failure uploads nothing.
+
+This format supports manual diagnosis, not direct Git replay. Reproduce the
+update locally to obtain the complete recovery tree. Public upstream addresses
+in a failing patch or conflict text may prevent export under the same policy as
+other newly published text; there is no upstream-content exemption. The ordinary
+scanner limitations and editable-checkout enforcement boundary still apply.
+
 ## Public text
 
 Use files containing the exact intended title and body. The wrapper supports draft

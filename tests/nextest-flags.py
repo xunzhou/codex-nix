@@ -22,12 +22,15 @@ def main():
         'nix', '--extra-experimental-features', 'nix-command flakes',
         'derivation', 'show', str(ROOT) + '#codex'], text=True))
     attributes = next(iter(data['derivations'].values()))['env']
+    if attributes['cargoBuildType'] != 'release' or attributes['cargoCheckType'] != 'ci-test':
+        raise SystemExit('expected release binaries and ci-test regression tests')
     # This deliberately matches stdenv's concatTo behavior for string flags.
     flags = attributes['cargoTestFlags'].split()
     with tempfile.TemporaryDirectory(prefix='codex-nextest-flags-') as directory:
         fixture = Path(directory)
         (fixture / 'Cargo.toml').write_text(
-            '[workspace]\nmembers=["tui", "core", "config"]\nresolver="2"\n')
+            '[workspace]\nmembers=["tui", "core", "config"]\nresolver="2"\n'
+            '[profile.ci-test]\ninherits="test"\nopt-level=0\n')
         for name in ('tui', 'core', 'config'):
             package = fixture / name
             package.mkdir()
@@ -42,7 +45,7 @@ def main():
                                    'consumer_roots_include_paginated_archived_descendants_and_keep_missing_usage',
                                    'reschedule_timer', 'coalesces_events')))
         (fixture / 'config/lib.rs').write_text(
-            '#[test] fn external_editor_reference_config() {}\n'
+            '#[test] fn external_editor_reference_config() { assert!(cfg!(debug_assertions)); }\n'
             '#[test] fn unrelated_config() { panic!("unrelated config selected"); }\n')
         (fixture / 'core/lib.rs').write_text(
             '#[test] fn add_dir_policy() {}\n'

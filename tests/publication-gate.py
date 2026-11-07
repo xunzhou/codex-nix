@@ -332,6 +332,113 @@ class GateTests(unittest.TestCase):
         finally:
             os.chdir(self.root)
 
+    def recovery_fixture(self):
+        source = self.root / 'failures'
+        packet = source / 'replay-fixture'
+        tree = packet / 'tree'
+        tree.mkdir(parents=True)
+        self.git('init', '-q', str(tree))
+        (packet / 'failure.json').write_text(json.dumps({'version': '0.2.0', 'patch': 'example.patch'}))
+        (packet / 'failure.patch').write_text('reviewed patch\n')
+        entries = []
+        for stage in ('1', '2', '3'):
+            value = self.git('-C', str(tree), 'hash-object', '-w', '--stdin',
+                             data=f'stage {stage}\n'.encode()).decode().strip()
+            entries.append(f'100644 {value} {stage}\tconflict.txt\n')
+        self.git('-C', str(tree), 'update-index', '--index-info', data=''.join(entries).encode())
+        (tree / 'conflict.txt').write_text('conflicted working text\n')
+        return source, packet, tree, self.root / 'checked.json'
+
+    def test_recovery_exports_only_checked_conflict_text(self):
+        source, packet, tree, output = self.recovery_fixture()
+        (tree / 'unrelated').write_text(PRIVATE)
+        (tree / '.git' / 'private-metadata').write_text(PRIVATE)
+        with contextlib.redirect_stdout(io.StringIO()):
+            gate.recovery_artifact(str(source), str(output))
+        raw = output.read_bytes()
+        self.assertNotIn(PRIVATE.encode(), raw)
+        item, = json.loads(raw)['packets']
+        self.assertEqual(item['patch'], 'reviewed patch\n')
+        conflict = item['conflicts']['conflict.txt']
+        self.assertEqual(conflict['worktree'], 'conflicted working text\n')
+        self.assertEqual(set(conflict['stages']), {'1', '2', '3'})
+        self.assertEqual(conflict['stages']['2']['text'], 'stage 2\n')
+        self.assertTrue((tree / '.git' / 'index').is_file())
+        self.assertEqual((tree / 'unrelated').read_text(), PRIVATE)
+
+    def test_recovery_blocks_each_selected_text_source(self):
+        source, packet, tree, output = self.recovery_fixture()
+        for path in (packet / 'failure.patch', packet / 'failure.json', tree / 'conflict.txt'):
+            original = path.read_bytes()
+            with self.subTest(file=path.name):
+                path.write_text(json.dumps({'note': PRIVATE}) if path.name.endswith('.json') else PRIVATE)
+                with self.assertRaises(gate.Blocked):
+                    gate.recovery_artifact(str(source), str(output))
+                self.assertFalse(output.exists())
+            path.write_bytes(original)
+        value = self.git('-C', str(tree), 'hash-object', '-w', '--stdin', data=PRIVATE.encode()).decode().strip()
+        self.git('-C', str(tree), 'update-index', '--index-info',
+                 data=f'100644 {value} 2\tconflict.txt\n'.encode())
+        with self.assertRaisesRegex(gate.Blocked, 'email'):
+            gate.recovery_artifact(str(source), str(output))
+        self.assertFalse(output.exists())
+
+    def test_recovery_decodes_metadata_before_scanning(self):
+        source, packet, tree, output = self.recovery_fixture()
+        (packet / 'failure.json').write_text(json.dumps({'note': PRIVATE}).replace('@', '\\u0040'))
+        with self.assertRaisesRegex(gate.Blocked, 'email'):
+            gate.recovery_artifact(str(source), str(output))
+        self.assertFalse(output.exists())
+
+    def test_recovery_rejects_binary_and_symlink_worktree(self):
+        source, packet, tree, output = self.recovery_fixture()
+        file = tree / 'conflict.txt'
+        file.write_bytes(b'\xff\x00')
+        with self.assertRaises(gate.Blocked):
+            gate.recovery_artifact(str(source), str(output))
+        self.assertFalse(output.exists())
+        file.unlink()
+        file.symlink_to(packet / 'failure.patch')
+        with self.assertRaisesRegex(gate.Blocked, 'unsupported-path'):
+            gate.recovery_artifact(str(source), str(output))
+        self.assertFalse(output.exists())
+
+    def test_recovery_preserves_deleted_worktree_side(self):
+        source, packet, tree, output = self.recovery_fixture()
+        (tree / 'conflict.txt').unlink()
+        with contextlib.redirect_stdout(io.StringIO()):
+            gate.recovery_artifact(str(source), str(output))
+        self.assertIsNone(json.loads(output.read_bytes())['packets'][0]['conflicts']['conflict.txt']['worktree'])
+
+    def test_recovery_rejects_binary_stage_and_unsupported_mode(self):
+        source, packet, tree, output = self.recovery_fixture()
+        for mode, data in [('100644', b'\xff\x00'), ('120000', b'target')]:
+            value = self.git('-C', str(tree), 'hash-object', '-w', '--stdin', data=data).decode().strip()
+            self.git('-C', str(tree), 'update-index', '--index-info',
+                     data=f'{mode} {value} 2\tconflict.txt\n'.encode())
+            with self.subTest(mode=mode), self.assertRaises(gate.Blocked):
+                gate.recovery_artifact(str(source), str(output))
+            self.assertFalse(output.exists())
+
+    def test_recovery_all_packets_must_pass(self):
+        source, packet, tree, output = self.recovery_fixture()
+        other = source / 'replay-second'
+        shutil.copytree(packet, other)
+        (other / 'failure.patch').write_text(PRIVATE)
+        with self.assertRaises(gate.Blocked):
+            gate.recovery_artifact(str(source), str(output))
+        self.assertFalse(output.exists())
+
+    def test_recovery_missing_input_and_existing_output(self):
+        source = self.root / 'missing'
+        output = self.root / 'checked.json'
+        gate.recovery_artifact(str(source), str(output))
+        self.assertFalse(output.exists())
+        output.write_text('prior output')
+        with self.assertRaisesRegex(gate.Blocked, 'existing-output'):
+            gate.recovery_artifact(str(source), str(output))
+        self.assertEqual(output.read_text(), 'prior output')
+
     def test_bundle_restore_rejects_extra_inherited_objects(self):
         output, head, _ = self.make_bundle()
         header = output.read_bytes().split(b'\n\n', 1)[0] + b'\n\n'
