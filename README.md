@@ -105,6 +105,10 @@ external_editor_include_reference = true
 
 </details>
 
+## Contributing
+
+Install and verify the [publication checks](docs/publication.md) before publishing.
+
 ## Update recovery
 
 Update preparation validates source, patches, and Cargo dependencies in a temporary
@@ -118,12 +122,16 @@ To retain an unresolved patch replay locally:
 CODEX_FAILURE_DIR=/tmp/codex-update-failures bash scripts/update.sh
 ```
 
-CI uploads an `update-failure` artifact when patch replay cannot resolve a conflict
-(retained for 14 days). Each packet contains the conflicted source tree including
-its Git index, source identity, failing patch and commit, and replay instructions.
-Inspect `tree` with `git status` and `git diff --cc`; use a copy for destructive
-replay commands. This packet covers unresolved patch conflicts, not every build
-or network failure.
+Local recovery packets contain the conflicted source tree including its Git index,
+source identity, failing patch and commit, and replay instructions. Inspect `tree`
+with `git status` and `git diff --cc`; use a copy for destructive replay commands.
+
+CI uploads only checked text diagnostics as `update-failure` (retained for 14 days):
+source metadata, the failing patch, and each conflict's index stages and working
+file. It does not upload the full tree or `.git`. The JSON packet supports manual
+conflict diagnosis; reproduce the update locally for a directly replayable tree.
+If any selected content fails publication checks, no recovery artifact is uploaded.
+These packets cover unresolved patch conflicts, not every build or network failure.
 
 ## Build validation
 

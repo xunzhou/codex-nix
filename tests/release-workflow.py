@@ -15,10 +15,46 @@ JOBS = dict(zip(PARTS[1::2], PARTS[2::2]))
 
 def artifact_names(job, action):
     return set(re.findall(
-        rf'uses: actions/{action}-artifact@[^\n]+\n\s+with:\n\s+name: ([^\n]+)', job))
+        rf'uses: actions/{action}-artifact@[^\n]+\n(?:\s+if:[^\n]+\n)?\s+with:\n\s+name: ([^\n]+)', job))
 
 
 class ReleaseWorkflowTests(unittest.TestCase):
+    def test_recovery_upload_requires_successful_scan_on_failure_path(self):
+        prepare = JOBS['prepare']
+        check = prepare.split('name: Check failed patch replay diagnostics', 1)[1].split(
+            'name: Preserve checked patch replay diagnostics', 1)[0]
+        self.assertIn("if: failure() && steps.candidate.outcome == 'failure'", check)
+        self.assertIn('set -euo pipefail', check)
+        self.assertLess(check.index('scripts/publication_gate.py recovery'),
+                        check.index("echo 'checked=true'"))
+        upload = prepare.split('name: Preserve checked patch replay diagnostics', 1)[1].split(
+            'retention-days: 14', 1)[0]
+        self.assertIn("if: failure() && steps.recovery.outcome == 'success' && steps.recovery.outputs.checked == 'true'", upload)
+        self.assertIn('path: ${{ runner.temp }}/update-failure.json\n', upload)
+        self.assertIn('if-no-files-found: error', upload)
+        self.assertNotIn('include-hidden-files', prepare)
+        self.assertNotIn('continue-on-error', check + upload)
+
+    def test_fresh_update_checks_before_publication(self):
+        prepare = JOBS['prepare']
+        self.assertLess(prepare.index('python3 tests/publication-gate.py'),
+                        prepare.index('name: Prepare candidate without publishing it'))
+        self.assertLess(prepare.index('scripts/publication_gate.py bundle'),
+                        prepare.index('uses: actions/upload-artifact@'))
+        self.assertNotIn('git bundle create', prepare)
+        self.assertIn("if: steps.candidate.outputs.changed == 'true'", prepare)
+        self.assertIn('bundle --base \"$base_sha\"', prepare)
+        for name in ('nix', 'publish'):
+            self.assertIn("if: needs.prepare.outputs.changed == 'true'", JOBS[name])
+            self.assertIn('restore-bundle', JOBS[name])
+            self.assertIn('--sha256 \"$BUNDLE_SHA256\"', JOBS[name])
+            self.assertIn('test \"$EXPECTED_SHA\" = \"$EXPECTED_BASE\"', JOBS[name])
+        publish = JOBS['publish']
+        self.assertLess(publish.index('git config --local core.hooksPath .githooks'),
+                        publish.index('git push --force-with-lease='))
+        self.assertIn('git config --local publication.identity', prepare)
+        self.assertIn('git config --local publication.identity', publish)
+
     def test_one_compilation_exports_both_formats(self):
         self.assertNotIn('native', JOBS)
         self.assertEqual(len(re.findall(r'nix .* build .*\.#codex\b', WORKFLOW)), 1)

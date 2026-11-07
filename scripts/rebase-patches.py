@@ -197,6 +197,7 @@ def rebase(root, source, previous, patches, version):
                             'patch_index': index, 'commit': commit,
                             'previous_source': previous['source'],
                         }, indent=2) + '\n')
+                        (packet / 'failure.patch').write_bytes((root / 'patches' / patches[index]).read_bytes())
                         (packet / 'README.txt').write_text(
                             'The tree directory preserves the failed cherry-pick and Git index.\n'
                             'Inspect: git -C tree status; git -C tree diff --cc\n'
