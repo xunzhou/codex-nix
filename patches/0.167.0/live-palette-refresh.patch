@@ -1,0 +1,281 @@
+diff --git a/codex-rs/tui/src/app.rs b/codex-rs/tui/src/app.rs
+index 80459f41136d4db5026f4224711d2770164a435c..e661467d1ec6876f33c36cc8a224ed84423187c5 100644
+--- a/codex-rs/tui/src/app.rs
++++ b/codex-rs/tui/src/app.rs
+@@ -871,6 +871,7 @@ impl App {
+     ) -> Result<AppRunControl> {
+         self.transcript_view
+             .sync_patch_approval(self.chat_widget.current_patch_approval());
++        self.refresh_syntax_theme_from_terminal_palette();
+         tui.link_hover.observe(&event);
+         self.refresh_link_hover(tui)?;
+         self.invalidate_right_click_paste(&event);
+diff --git a/codex-rs/tui/src/app/config_persistence.rs b/codex-rs/tui/src/app/config_persistence.rs
+index 8a04d724522490941798f369222e3ef7980605a5..45b32a5db7fb0606681905635e56d6100eeb1066 100644
+--- a/codex-rs/tui/src/app/config_persistence.rs
++++ b/codex-rs/tui/src/app/config_persistence.rs
+@@ -1209,6 +1209,12 @@ impl App {
+         self.chat_widget.set_tui_pet(Some(pet));
+     }
+ 
++    pub(super) fn refresh_syntax_theme_from_terminal_palette(&self) {
++        if crate::terminal_palette::take_syntax_theme_refresh() {
++            self.restore_runtime_theme_from_config();
++        }
++    }
++
+     pub(super) fn restore_runtime_theme_from_config(&self) {
+         if let Some(name) = self.local_settings.tui.theme.as_deref()
+             && let Some(theme) = crate::render::highlight::resolve_theme_by_name(
+@@ -2127,6 +2133,62 @@ theme = "dracula"
+         Ok(())
+     }
+ 
++    #[tokio::test]
++    async fn palette_refresh_updates_syntax_and_invalidates_caches() {
++        let mut app = make_test_app().await;
++        app.local_settings.tui.theme = None;
++        for (fg, bg, name) in [
++            ((76, 79, 105), (239, 241, 245), "catppuccin-latte"),
++            ((205, 214, 244), (30, 30, 46), "catppuccin-mocha"),
++        ] {
++            crate::terminal_palette::with_test_default_colors(
++                crate::terminal_probe::DefaultColors { fg, bg },
++                || {
++                    let revision = crate::render::highlight::syntax_theme_revision();
++                    crate::terminal_palette::request_syntax_theme_refresh();
++                    app.refresh_syntax_theme_from_terminal_palette();
++                    let expected =
++                        crate::render::highlight::resolve_theme_by_name(name, None).unwrap();
++                    assert_eq!(
++                        crate::render::highlight::current_syntax_theme().settings,
++                        expected.settings
++                    );
++                    assert_eq!(
++                        crate::render::highlight::syntax_theme_revision(),
++                        revision + 1
++                    );
++                    app.refresh_syntax_theme_from_terminal_palette();
++                    assert_eq!(
++                        crate::render::highlight::syntax_theme_revision(),
++                        revision + 1
++                    );
++                },
++            );
++        }
++    }
++
++    #[tokio::test]
++    async fn palette_refresh_preserves_theme_selected_after_startup() {
++        let mut app = make_test_app().await;
++        app.sync_tui_theme_selection("dracula".to_string());
++        crate::terminal_palette::with_test_default_colors(
++            crate::terminal_probe::DefaultColors {
++                fg: (76, 79, 105),
++                bg: (239, 241, 245),
++            },
++            || {
++                crate::terminal_palette::request_syntax_theme_refresh();
++                app.refresh_syntax_theme_from_terminal_palette();
++                let expected =
++                    crate::render::highlight::resolve_theme_by_name("dracula", None).unwrap();
++                assert_eq!(
++                    crate::render::highlight::current_syntax_theme().settings,
++                    expected.settings
++                );
++            },
++        );
++    }
++
+     #[tokio::test]
+     async fn sync_tui_theme_selection_updates_chat_widget_config_copy() {
+         let mut app = make_test_app().await;
+diff --git a/codex-rs/tui/src/terminal_palette.rs b/codex-rs/tui/src/terminal_palette.rs
+index ec26d1b2261b6be40c22a2173251b24ec5f95f6e..5c4892461124e15a43672219d44237fc2c5e7682 100644
+--- a/codex-rs/tui/src/terminal_palette.rs
++++ b/codex-rs/tui/src/terminal_palette.rs
+@@ -88,12 +88,20 @@ fn best_color_for_color_level(target: (u8, u8, u8), color_level: StdoutColorLeve
+     }
+ }
+ 
+-#[derive(Clone, Copy)]
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+ pub struct DefaultColors {
+     fg: (u8, u8, u8),
+     bg: (u8, u8, u8),
+ }
+ 
++#[cfg(any(unix, windows, test))]
++fn refreshed_default_colors(
++    current: Option<DefaultColors>,
++    probed: Option<DefaultColors>,
++) -> Option<DefaultColors> {
++    probed.or(current)
++}
++
+ #[cfg(test)]
+ thread_local! {
+     static TEST_DEFAULT_COLORS: std::cell::Cell<Option<Option<DefaultColors>>> = const {
+@@ -143,9 +151,51 @@ pub(crate) fn set_default_colors_from_startup_probe(
+     imp::set_default_colors_from_startup_probe(colors);
+ }
+ 
++// Defer syntax refresh to the app so current session preferences are respected.
++#[cfg(not(test))]
++static SYNTAX_THEME_REFRESH_PENDING: std::sync::atomic::AtomicBool =
++    std::sync::atomic::AtomicBool::new(false);
++#[cfg(test)]
++thread_local! {
++    static SYNTAX_THEME_REFRESH_PENDING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
++}
++
++pub(crate) fn request_syntax_theme_refresh() {
++    #[cfg(not(test))]
++    SYNTAX_THEME_REFRESH_PENDING.store(true, std::sync::atomic::Ordering::Release);
++    #[cfg(test)]
++    SYNTAX_THEME_REFRESH_PENDING.with(|pending| pending.set(true));
++}
++
++pub(crate) fn take_syntax_theme_refresh() -> bool {
++    #[cfg(not(test))]
++    {
++        SYNTAX_THEME_REFRESH_PENDING.swap(false, std::sync::atomic::Ordering::AcqRel)
++    }
++    #[cfg(test)]
++    SYNTAX_THEME_REFRESH_PENDING.with(|pending| pending.replace(false))
++}
++
++#[cfg(unix)]
++pub(crate) fn refresh_default_colors_from_terminal() -> bool {
++    let Ok(probe) = crate::terminal_probe::startup(
++        crate::terminal_probe::DEFAULT_TIMEOUT,
++        crate::terminal_probe::StartupKeyboardEnhancementProbe::Skip,
++    ) else {
++        return false;
++    };
++    let Some(colors) = probe.default_colors else {
++        return false;
++    };
++    imp::set_default_colors_from_startup_probe(Some(colors));
++    request_syntax_theme_refresh();
++    true
++}
++
+ #[cfg(any(all(unix, not(test)), windows))]
+ mod imp {
+     use super::DefaultColors;
++    use super::refreshed_default_colors;
+     use std::sync::Mutex;
+     use std::sync::OnceLock;
+ 
+@@ -188,10 +238,11 @@ mod imp {
+         colors: Option<crate::terminal_probe::DefaultColors>,
+     ) {
+         if let Ok(mut cache) = default_colors_cache().lock() {
+-            cache.value = colors.map(|colors| DefaultColors {
++            let probed = colors.map(|colors| DefaultColors {
+                 fg: colors.fg,
+                 bg: colors.bg,
+             });
++            cache.value = refreshed_default_colors(cache.value, probed);
+             cache.attempted = true;
+         }
+     }
+@@ -500,6 +551,24 @@ mod tests {
+     use super::*;
+     use pretty_assertions::assert_eq;
+ 
++    #[test]
++    fn palette_refresh_replaces_successful_probe_and_keeps_last_value_on_failure() {
++        let dark = DefaultColors {
++            fg: (205, 214, 244),
++            bg: (30, 30, 46),
++        };
++        let light = DefaultColors {
++            fg: (76, 79, 105),
++            bg: (239, 241, 245),
++        };
++
++        assert_eq!(
++            refreshed_default_colors(Some(dark), Some(light)),
++            Some(light)
++        );
++        assert_eq!(refreshed_default_colors(Some(light), None), Some(light));
++    }
++
+     #[test]
+     fn best_color_uses_truecolor_without_quantization() {
+         assert_eq!(
+diff --git a/codex-rs/tui/src/tui/event_stream.rs b/codex-rs/tui/src/tui/event_stream.rs
+index 3ed439eec65824f9ff3f3fc5762c88848b295c9c..3c1240552396803b2611da374661dec1b456fcce 100644
+--- a/codex-rs/tui/src/tui/event_stream.rs
++++ b/codex-rs/tui/src/tui/event_stream.rs
+@@ -53,6 +53,8 @@ pub trait EventSource: Send + 'static {
+ pub struct EventBroker<S: EventSource = CrosstermEventSource> {
+     state: Mutex<EventBrokerState<S>>,
+     resume_events_tx: watch::Sender<()>,
++    #[cfg(unix)]
++    palette_refresh_signal: Mutex<Option<tokio::signal::unix::Signal>>,
+     pub(super) size_monitor: Option<SizeMonitor>,
+ }
+ 
+@@ -83,9 +85,14 @@ impl<S: EventSource + Default> EventBrokerState<S> {
+ impl<S: EventSource + Default> EventBroker<S> {
+     pub fn new() -> Self {
+         let (resume_events_tx, _resume_events_rx) = watch::channel(());
++        #[cfg(unix)]
++        let palette_refresh_signal =
++            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::user_defined1()).ok();
+         Self {
+             state: Mutex::new(EventBrokerState::Start),
+             resume_events_tx,
++            #[cfg(unix)]
++            palette_refresh_signal: Mutex::new(palette_refresh_signal),
+             size_monitor: None,
+         }
+     }
+@@ -274,6 +281,32 @@ impl<S: EventSource + Default + Unpin> TuiEventStream<S> {
+         }
+     }
+ 
++    #[cfg(unix)]
++    fn poll_palette_refresh_signal(&mut self, cx: &mut Context<'_>) -> Poll<Option<TuiEvent>> {
++        let signal_received = {
++            let mut signal = self
++                .broker
++                .palette_refresh_signal
++                .lock()
++                .unwrap_or_else(std::sync::PoisonError::into_inner);
++            let Some(signal) = signal.as_mut() else {
++                return Poll::Pending;
++            };
++            matches!(Pin::new(signal).poll_recv(cx), Poll::Ready(Some(())))
++        };
++        if !signal_received {
++            return Poll::Pending;
++        }
++
++        self.broker.pause_events();
++        let refreshed = crate::terminal_palette::refresh_default_colors_from_terminal();
++        self.broker.resume_events();
++        if !refreshed {
++            tracing::warn!("terminal palette refresh did not return default colors");
++        }
++        Poll::Ready(Some(TuiEvent::Draw))
++    }
++
+     /// Map a crossterm event to a [`TuiEvent`], preserving mouse coordinates and modifiers.
+     fn map_crossterm_event(&mut self, event: Event) -> Option<TuiEvent> {
+         match event {
+@@ -323,6 +356,11 @@ impl<S: EventSource + Default + Unpin> Stream for TuiEventStream<S> {
+     type Item = TuiEvent;
+ 
+     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
++        #[cfg(unix)]
++        if let Poll::Ready(event) = self.poll_palette_refresh_signal(cx) {
++            return Poll::Ready(event);
++        }
++
+         // approximate fairness + no starvation via round-robin.
+         let draw_first = self.poll_draw_first;
+         self.poll_draw_first = !self.poll_draw_first;
