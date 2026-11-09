@@ -291,16 +291,29 @@ jobs:
         with:
           ref: ${{ needs.prepare.outputs.sha }}
           persist-credentials: false
-      # No runtime libraries are installed: the static release must run as-is.
-      - name: Download, verify, and smoke-test the published release
+      - name: Look up published release metadata
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           python3 - <<'PYTHON'
-          import importlib.util, os
+          import importlib.util, json, os
           from pathlib import Path
           spec = importlib.util.spec_from_file_location('client', 'scripts/install-release.py')
           client = importlib.util.module_from_spec(spec)
           spec.loader.exec_module(client)
-          releases = client.request('/releases?per_page=100')
+          releases = client.request('/releases?per_page=100', token=os.environ['GITHUB_TOKEN'])
+          (Path(os.environ['RUNNER_TEMP']) / 'release-metadata.json').write_text(json.dumps(releases))
+          PYTHON
+      # No token or runtime libraries: download and execute the public release as-is.
+      - name: Download, verify, and smoke-test the published release
+        run: |
+          python3 - <<'PYTHON'
+          import importlib.util, json, os
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location('client', 'scripts/install-release.py')
+          client = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(client)
+          releases = json.loads((Path(os.environ['RUNNER_TEMP']) / 'release-metadata.json').read_text())
           version = __import__('json').load(open('build.json'))['default_version']
           client.prepare(client.select(releases, version), Path(os.environ['RUNNER_TEMP']) / 'public-download')
           PYTHON

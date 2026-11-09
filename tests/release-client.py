@@ -9,6 +9,10 @@ from pathlib import Path
 import tarfile
 import tempfile
 import unittest
+from urllib.error import HTTPError
+from urllib.response import addinfourl
+from urllib.request import HTTPHandler, build_opener
+from email.message import Message
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('client', ROOT / 'scripts/install-release.py')
@@ -23,6 +27,68 @@ def release(version, published='2026-09-24', key=None, **kwargs):
                 draft=False, prerelease=False, assets=assets, **kwargs)
 
 class ClientTests(unittest.TestCase):
+    def test_metadata_authentication_is_explicit_and_scoped(self):
+        with patch.object(m, 'urlopen', return_value=io.BytesIO(b'[]')) as anonymous, \
+             patch.dict(os.environ, GITHUB_TOKEN='fixture-metadata-token'):
+            self.assertEqual(m.request('/releases?per_page=100'), [])
+        self.assertIsNone(anonymous.call_args.args[0].get_header('Authorization'))
+        with patch.object(m, 'build_opener') as opener:
+            opener.return_value.open.return_value = io.BytesIO(b'[]')
+            self.assertEqual(m.request('/releases?per_page=100', token='fixture-metadata-token'), [])
+            req = opener.return_value.open.call_args.args[0]
+            self.assertEqual(req.full_url, m.API + '/releases?per_page=100')
+            self.assertEqual(req.get_header('Authorization'), 'Bearer fixture-metadata-token')
+            self.assertIsInstance(opener.call_args.args[0], m.NoMetadataRedirect)
+        with patch.object(m, 'build_opener') as opener:
+            for path in ['/releases/1/assets', '//example.invalid/releases', '/releases#fragment']:
+                with self.subTest(path=path), self.assertRaises(ValueError):
+                    m.request(path, token='fixture-metadata-token')
+            opener.assert_not_called()
+
+    def test_authenticated_metadata_redirects_are_not_followed(self):
+        class RedirectTransport(HTTPHandler):
+            def http_open(self, req):
+                requests.append(req)
+                headers = Message()
+                headers['Location'] = destination
+                response = addinfourl(io.BytesIO(), headers, req.full_url, code)
+                response.msg = 'redirect'
+                return response
+        for code in [301, 302, 303, 307, 308]:
+            for destination in ['http://example.invalid/asset', 'http://metadata.invalid/elsewhere']:
+                requests = []
+                opener = build_opener(RedirectTransport(), m.NoMetadataRedirect())
+                with self.subTest(code=code, destination=destination), \
+                     patch.object(m, 'API', 'http://metadata.invalid'), \
+                     patch.object(m, 'build_opener', return_value=opener):
+                    with self.assertRaises(HTTPError):
+                        m.request('/releases', token='fixture-metadata-token')
+                self.assertEqual(len(requests), 1)
+                self.assertEqual(requests[0].full_url, 'http://metadata.invalid/releases')
+
+    def test_metadata_token_is_not_retained_for_asset_subprocess(self):
+        token = 'fixture-metadata-token'
+        before = dict(os.environ)
+        with patch.object(m, 'build_opener') as opener:
+            opener.return_value.open.return_value = io.BytesIO(b'[]')
+            m.request('/releases', token=token)
+        self.assertEqual(dict(os.environ), before)
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / 'asset.tar.gz'
+            content = b'verified asset'
+            remote = release('0.10.0')
+            name = remote['assets'][0]['name']
+            remote['assets'][0].update(state='uploaded', digest='sha256:' + m.hashlib.sha256(content).hexdigest())
+            def curl(argv, **kwargs):
+                self.assertNotIn(token, repr((argv, kwargs)))
+                self.assertNotIn('--header', argv)
+                self.assertNotIn('-H', argv)
+                self.assertNotIn('env', kwargs)
+                Path(argv[argv.index('--output') + 1]).write_bytes(content)
+            with patch.object(m.subprocess, 'run', side_effect=curl):
+                m.download(remote, name, target)
+            self.assertEqual(target.read_bytes(), content)
+
     def test_numeric_version_order_not_publication_order(self):
         self.assertEqual(m.select([release('0.9.0', '2026-10-01'), release('0.10.0')])['tag_name'], release('0.10.0')['tag_name'])
     def test_draft_and_prerelease_excluded(self):
@@ -77,6 +143,7 @@ class ClientTests(unittest.TestCase):
             binary = root / 'binary'; binary.mkdir()
             for name in spec['binaries']:
                 (binary / name).write_text('#!/bin/sh\n'
+                    + 'if env | grep -Fq fixture-metadata-token; then exit 1; fi\n'
                     + ''.join('# ' + marker + '\n' for marker in spec['markers'])
                     + 'echo codex-cli ' + version + '\n')
                 (binary / name).chmod(0o755)
@@ -91,6 +158,9 @@ class ClientTests(unittest.TestCase):
             remote = release(version, key=key)
             def download(remote, name, destination):
                 shutil.copyfile(root / name, destination)
+            with patch.object(m, 'build_opener') as opener:
+                opener.return_value.open.return_value = io.BytesIO(b'[]')
+                m.request('/releases', token='fixture-metadata-token')
             with patch.object(m, 'download', side_effect=download):
                 _, selected = m.prepare(remote, root / 'cache')
                 self.assertEqual(selected, version)

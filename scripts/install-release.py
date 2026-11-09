@@ -14,15 +14,27 @@ import subprocess
 import sys
 import tarfile
 import tempfile
-from urllib.request import urlopen, Request
+from urllib.request import urlopen, Request, build_opener, HTTPRedirectHandler
 
 REPOSITORY = 'xunzhou/codex-nix'
 API = f'https://api.github.com/repos/{REPOSITORY}'
 TAG = re.compile(r'bundle-codex-v(\d+\.\d+\.\d+)-[a-f0-9]{16}-[0-9a-z]{16}')
 NATIVE = re.compile(r'codex-native-(\d+\.\d+\.\d+-[a-f0-9]{64})-linux-x86_64\.tar\.gz')
 
-def request(path):
-    with urlopen(Request(API + path, headers={'Accept': 'application/vnd.github+json'}), timeout=60) as response:
+class NoMetadataRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None  # Never forward metadata credentials to a redirect target.
+
+
+def request(path, *, token=None):
+    headers = {'Accept': 'application/vnd.github+json'}
+    open_request = urlopen
+    if token:
+        if not re.fullmatch(r'/releases(?:\?[^#\r\n]*)?', path):
+            raise ValueError('authentication is limited to release metadata')
+        headers['Authorization'] = 'Bearer ' + token
+        open_request = build_opener(NoMetadataRedirect()).open
+    with open_request(Request(API + path, headers=headers), timeout=60) as response:
         return json.load(response)
 
 

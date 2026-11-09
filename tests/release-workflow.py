@@ -19,6 +19,22 @@ def artifact_names(job, action):
 
 
 class ReleaseWorkflowTests(unittest.TestCase):
+    def test_native_metadata_token_is_isolated_from_download_and_execution(self):
+        job = JOBS['native-download-smoke']
+        metadata, smoke = job.split('      - name: Download, verify, and smoke-test the published release', 1)
+        self.assertEqual(metadata.count('GITHUB_TOKEN: ${{ github.token }}'), 1)
+        self.assertIn("token=os.environ['GITHUB_TOKEN']", metadata)
+        self.assertIn("'release-metadata.json').write_text(json.dumps(releases))", metadata)
+        self.assertNotIn('client.prepare(', metadata)
+        self.assertNotIn('client.download(', metadata)
+        self.assertNotIn('subprocess', metadata)
+        self.assertNotIn('env:', smoke)
+        self.assertNotIn('TOKEN', smoke)
+        self.assertNotIn('client.request(', smoke)
+        self.assertIn("'release-metadata.json').read_text()", smoke)
+        self.assertIn('client.prepare(client.select(releases, version)', smoke)
+        self.assertIn('permissions:\n  contents: read', WORKFLOW)
+
     def test_recovery_upload_requires_successful_scan_on_failure_path(self):
         prepare = JOBS['prepare']
         check = prepare.split('name: Check failed patch replay diagnostics', 1)[1].split(
