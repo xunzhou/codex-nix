@@ -1,8 +1,6 @@
 # Runtime `/add-dir` validation — Codex 0.166.0
 
-Worktree: `.worktrees/14-runtime-add-dir-latest`, branch
-`agent/14-runtime-add-dir-latest`. This follow-up fixes the first implementation
-in commit `2fb738e`.
+This follow-up fixes the first implementation in commit `2fb738e`.
 
 ## Failure and fix
 
@@ -56,14 +54,14 @@ build, not the static release build.
 
 ## Manual retry using the rebuilt candidate
 
-The existing CLI process still contains the earlier code. Exit it, then launch
-this worktree's rebuilt candidate and select the previous manual-test conversation
-from the resume picker:
+Exit any CLI process using the earlier code. Set `CODEX_CANDIDATE` to the
+rebuilt CLI executable and `CODEX_TEST_WORKSPACE` to the scratch test workspace
+with a sibling `extra` directory. Launch the candidate and select the previous
+manual-test conversation from the resume picker:
 
 ```sh
-cd /data/proj/codex-nix/.worktrees/14-runtime-add-dir-latest
-.scratch/target/debug/codex --no-daemon \
-  -C "$PWD/.scratch/manual/main" \
+"${CODEX_CANDIDATE:?Set CODEX_CANDIDATE to the rebuilt Codex executable}" --no-daemon \
+  -C "${CODEX_TEST_WORKSPACE:?Set CODEX_TEST_WORKSPACE to the test workspace}" \
   --sandbox workspace-write --ask-for-approval never resume
 ```
 
