@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "default_version": "0.167.1",
+  "default_version": "0.167.2",
   "release_repository": "xunzhou/codex-nix",
   "build": {
     "binaries": {
@@ -81,12 +81,12 @@
     }
   },
   "releases": {
-    "0.167.1": {
+    "0.167.2": {
       "profile": "v8-152.2.0",
       "source": {
-        "url": "https://github.com/openai/codex/archive/refs/tags/rust-v0.167.1.tar.gz",
-        "sha256": "c1c35ded9cf1b77532d6d5a8e970e47f544481f074f21a0def7779b02fc1e799",
-        "nar_hash": "sha256-S63Qd9OGCACz1EK/IzH6LGsZxMovk0UBkOKtv/jnQ+I="
+        "url": "https://github.com/openai/codex/archive/refs/tags/rust-v0.167.2.tar.gz",
+        "sha256": "a2c669c56d42a9152edaa41f61572354113d03f8e2aa56dd4384ce4584d79289",
+        "nar_hash": "sha256-si822Nidf0AXpADOczhwz8sftOYwZ/zIQ7WKzyveiKM="
       },
       "patches": [
         "0.167.0/live-palette-refresh.patch",
