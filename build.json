@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "default_version": "0.167.2",
+  "default_version": "0.169.0",
   "release_repository": "xunzhou/codex-nix",
   "build": {
     "binaries": {
@@ -81,20 +81,20 @@
     }
   },
   "releases": {
-    "0.167.2": {
+    "0.169.0": {
       "profile": "v8-152.2.0",
       "source": {
-        "url": "https://github.com/openai/codex/archive/refs/tags/rust-v0.167.2.tar.gz",
-        "sha256": "a2c669c56d42a9152edaa41f61572354113d03f8e2aa56dd4384ce4584d79289",
-        "nar_hash": "sha256-si822Nidf0AXpADOczhwz8sftOYwZ/zIQ7WKzyveiKM="
+        "url": "https://github.com/openai/codex/archive/refs/tags/rust-v0.169.0.tar.gz",
+        "sha256": "d9b6335151f66d1d4ae9123f55553164ff339f30b14f64a358ea78139c4c093e",
+        "nar_hash": "sha256-p8Vw0Vu8ufPY35k/RkcKE6HOTMJta2J9W33ei/7in+A="
       },
       "patches": [
-        "0.167.0/live-palette-refresh.patch",
-        "0.167.0/double-esc-interrupt.patch",
-        "0.167.0/external-editor-reference.patch",
-        "0.167.0/runtime-add-dir.patch"
+        "0.169.0/live-palette-refresh.patch",
+        "0.169.0/double-esc-interrupt.patch",
+        "0.169.0/external-editor-reference.patch",
+        "0.169.0/runtime-add-dir.patch"
       ],
-      "cargo_hash": "sha256-Dqo9nMfbkTcyT+S79U2JdXpnxwrN0fQjjMlG055jvJE="
+      "cargo_hash": "sha256-+YSkZwmAP88AOFmNWav4ye4ObbDYAIo0mzeQEzTqDm8="
     }
   }
 }
