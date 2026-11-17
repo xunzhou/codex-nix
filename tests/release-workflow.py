@@ -35,6 +35,38 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn('client.prepare(client.select(releases, version)', smoke)
         self.assertIn('permissions:\n  contents: read', WORKFLOW)
 
+    def test_patch_target_is_read_only_and_uses_exact_pr_head(self):
+        target = (ROOT / '.github/workflows/patch-target.yml').read_text()
+        self.assertIn('  pull_request:\n', target)
+        self.assertIn('      - patches/0.169.0/**\n', target)
+        self.assertIn('permissions:\n  contents: read\n', target)
+        self.assertIn('ref: ${{ github.event.pull_request.head.sha }}', target)
+        self.assertIn('persist-credentials: false', target)
+        for forbidden in ('pull_request_target', 'contents: write',
+                          'upload-artifact', 'git push', 'git commit',
+                          'publish-release.py', 'publish-bundle.sh',
+                          'GH_TOKEN:', 'GITHUB_TOKEN:', 'secrets.',
+                          'continue-on-error'):
+            self.assertNotIn(forbidden, target)
+
+    def test_patch_target_prepares_and_builds_selected_version(self):
+        target = (ROOT / '.github/workflows/patch-target.yml').read_text()
+        self.assertIn("TARGET_VERSION: '0.169.0'", target)
+        prepare = target.index('python3 scripts/update-manifest.py "$TARGET_VERSION"')
+        self.assertLess(target.index('scripts/reclaim-runner-disk.sh'), prepare)
+        self.assertLess(prepare, target.index('python3 tests/source-patcher.py'))
+        self.assertLess(prepare, target.index('nix flake check --no-build'))
+        self.assertIn('test "$(nix eval --raw .#codex.version)" = "$TARGET_VERSION"', target)
+        self.assertIn('test "$(./result/bin/codex --version)" = "codex-cli $TARGET_VERSION"', target)
+        self.assertIn('nix --extra-system-features codex-artifact-publisher build -L .#codex', target)
+        for validation in ('tests/manifest.py', 'tests/publication-gate.py',
+                           'tests/rebase-patches.py', 'tests/package-policy.sh',
+                           'tests/update.sh', 'tests/bundle.sh',
+                           'tests/nextest-flags.py', 'tests/static-portability.sh',
+                           'scripts/setup-build-swap.sh', 'codex-code-mode-host --help'):
+            self.assertIn(validation, target)
+        self.assertIn('--version "$TARGET_VERSION"', target)
+
     def test_recovery_upload_requires_successful_scan_on_failure_path(self):
         prepare = JOBS['prepare']
         check = prepare.split('name: Check failed patch replay diagnostics', 1)[1].split(
