@@ -1,3 +1,39 @@
+diff --git a/codex-rs/tui/src/app/agents_overview_tests.rs b/codex-rs/tui/src/app/agents_overview_tests.rs
+index 98e0445bdb1f7ca0e75f60a4eca1314aba55bf60..4256d228caa93a7fb58f3eb02e71b6cf8f00bf9b 100644
+--- a/codex-rs/tui/src/app/agents_overview_tests.rs
++++ b/codex-rs/tui/src/app/agents_overview_tests.rs
+@@ -3065,11 +3065,27 @@ async fn check_resume_round_trip(round_trip: ResumeRoundTrip) -> Result<()> {
+                     .last_turn_id()
+                     .expect("running turn")
+                     .to_owned();
+-                app.chat_widget
+-                    .handle_key_event(KeyEvent::from(KeyCode::Esc));
+-                assert!(
++                app.chat_widget.handle_key_event(KeyEvent::new_with_kind(
++                    KeyCode::Esc,
++                    KeyModifiers::NONE,
++                    crossterm::event::KeyEventKind::Press,
++                ));
++                assert_eq!(
++                    std::iter::from_fn(|| events.try_recv().ok())
++                        .filter(|event| matches!(event, AppEvent::CodexOp(AppCommand::Interrupt)))
++                        .count(),
++                    0
++                );
++                app.chat_widget.handle_key_event(KeyEvent::new_with_kind(
++                    KeyCode::Esc,
++                    KeyModifiers::NONE,
++                    crossterm::event::KeyEventKind::Press,
++                ));
++                assert_eq!(
+                     std::iter::from_fn(|| events.try_recv().ok())
+-                        .any(|event| matches!(event, AppEvent::CodexOp(AppCommand::Interrupt)))
++                        .filter(|event| matches!(event, AppEvent::CodexOp(AppCommand::Interrupt)))
++                        .count(),
++                    1
+                 );
+                 server.turn_interrupt(outgoing, turn_id).await?;
+                 TurnStatus::Interrupted
 diff --git a/codex-rs/tui/src/app/owned_transcript_tests.rs b/codex-rs/tui/src/app/owned_transcript_tests.rs
 index 6b76d69a08a1b86d0b139b95b3ef0c74616abd89..d8c8b3dd747b9edb3e4b523f5b91480fd8de34c1 100644
 --- a/codex-rs/tui/src/app/owned_transcript_tests.rs
