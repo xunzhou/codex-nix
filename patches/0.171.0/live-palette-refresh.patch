@@ -91,7 +91,7 @@ index 9a0fba459b5656aa9f38f065ef55d38776f25b8e..7472e317e6a44bbbc6b8c766e0af7371
      async fn sync_tui_theme_selection_updates_chat_widget_config_copy() {
          let mut app = make_test_app().await;
 diff --git a/codex-rs/tui/src/terminal_palette.rs b/codex-rs/tui/src/terminal_palette.rs
-index 2f880f8be8a150b3a230e49a08fbbd7095642b9b..a473e7fcc8518019e7d856cd8341774121c356b4 100644
+index 2f880f8be8a150b3a230e49a08fbbd7095642b9b..8d4e5a80e8d2a2ca5ddf3b875b4b31a10f327312 100644
 --- a/codex-rs/tui/src/terminal_palette.rs
 +++ b/codex-rs/tui/src/terminal_palette.rs
 @@ -89,12 +89,20 @@ fn best_color_for_color_level(target: (u8, u8, u8), color_level: StdoutColorLeve
@@ -116,7 +116,7 @@ index 2f880f8be8a150b3a230e49a08fbbd7095642b9b..a473e7fcc8518019e7d856cd83417741
  #[cfg(test)]
  thread_local! {
      static TEST_DEFAULT_COLORS: std::cell::Cell<Option<Option<DefaultColors>>> = const {
-@@ -144,9 +152,51 @@ pub(crate) fn set_default_colors_from_startup_probe(
+@@ -144,9 +152,52 @@ pub(crate) fn set_default_colors_from_startup_probe(
      imp::set_default_colors_from_startup_probe(colors);
  }
  
@@ -150,6 +150,7 @@ index 2f880f8be8a150b3a230e49a08fbbd7095642b9b..a473e7fcc8518019e7d856cd83417741
 +    let Ok(probe) = crate::terminal_probe::startup(
 +        crate::terminal_probe::DEFAULT_TIMEOUT,
 +        crate::terminal_probe::StartupKeyboardEnhancementProbe::Skip,
++        false, // Refresh colors without querying graphics support again.
 +    ) else {
 +        return false;
 +    };
@@ -168,7 +169,7 @@ index 2f880f8be8a150b3a230e49a08fbbd7095642b9b..a473e7fcc8518019e7d856cd83417741
      use std::sync::Mutex;
      use std::sync::OnceLock;
  
-@@ -189,10 +239,11 @@ mod imp {
+@@ -189,10 +240,11 @@ mod imp {
          colors: Option<crate::terminal_probe::DefaultColors>,
      ) {
          if let Ok(mut cache) = default_colors_cache().lock() {
@@ -181,7 +182,7 @@ index 2f880f8be8a150b3a230e49a08fbbd7095642b9b..a473e7fcc8518019e7d856cd83417741
              cache.attempted = true;
          }
      }
-@@ -501,6 +552,24 @@ mod tests {
+@@ -501,6 +553,24 @@ mod tests {
      use super::*;
      use pretty_assertions::assert_eq;
  
