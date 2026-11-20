@@ -1,9 +1,9 @@
-name: Check Codex 0.169.0
+name: Check Codex 0.171.0
 
 on:
   pull_request:
     paths:
-      - patches/0.169.0/**
+      - patches/0.171.0/**
       - .github/workflows/patch-target.yml
 
 permissions:
@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     env:
-      TARGET_VERSION: '0.169.0'
+      TARGET_VERSION: '0.171.0'
     steps:
       - name: Check out exact PR head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
