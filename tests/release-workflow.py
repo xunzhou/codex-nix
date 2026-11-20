@@ -38,7 +38,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
     def test_patch_target_is_read_only_and_uses_exact_pr_head(self):
         target = (ROOT / '.github/workflows/patch-target.yml').read_text()
         self.assertIn('  pull_request:\n', target)
-        self.assertIn('      - patches/0.169.0/**\n', target)
+        self.assertIn('      - patches/0.171.0/**\n', target)
         self.assertIn('permissions:\n  contents: read\n', target)
         self.assertIn('ref: ${{ github.event.pull_request.head.sha }}', target)
         self.assertIn('persist-credentials: false', target)
@@ -51,7 +51,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
 
     def test_patch_target_prepares_and_builds_selected_version(self):
         target = (ROOT / '.github/workflows/patch-target.yml').read_text()
-        self.assertIn("TARGET_VERSION: '0.169.0'", target)
+        self.assertIn("TARGET_VERSION: '0.171.0'", target)
         prepare = target.index('python3 scripts/update-manifest.py "$TARGET_VERSION"')
         self.assertLess(target.index('scripts/reclaim-runner-disk.sh'), prepare)
         self.assertLess(prepare, target.index('python3 tests/source-patcher.py'))
