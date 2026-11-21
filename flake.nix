@@ -11,13 +11,13 @@
     in
     {
       packages = forAllSystems (
-        system:
+        targetSystem:
         let
-          pkgs = import nixpkgs { inherit system; };
+          pkgs = import nixpkgs { system = targetSystem; };
           # One musl build supplies both the Nix closure and native tarball.
           codex = pkgs.pkgsStatic.callPackage ./package.nix { };
           # Explicit local development target; publication uses the gated package.
-          codex-static = codex.overrideAttrs {
+          codex-static = (codex.override { useDependencyCache = false; }).overrideAttrs {
             requiredSystemFeatures = [ ];
             preBuild = ''export NIX_BUILD_CORES=8'';
           };

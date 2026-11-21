@@ -19,6 +19,22 @@ def artifact_names(job, action):
 
 
 class ReleaseWorkflowTests(unittest.TestCase):
+    def test_compiled_dependency_caches_precede_every_full_build(self):
+        for name in ('check', 'patch-target', 'update'):
+            with self.subTest(name=name):
+                workflow = (ROOT / f'.github/workflows/{name}.yml').read_text()
+                release = workflow.index('attribute: releaseDeps')
+                tests = workflow.index('attribute: testDeps')
+                final = workflow.index('build -L .#codex')
+                self.assertLess(release, tests)
+                self.assertLess(tests, final)
+                self.assertEqual(workflow.count('uses: ./.github/actions/cargo-dependency-cache'), 2)
+        cache = (ROOT / '.github/actions/cargo-dependency-cache/action.yml').read_text()
+        self.assertNotIn('restore-keys:', cache)
+        self.assertRegex(cache, r'actions/cache/restore@[0-9a-f]{40} ')
+        self.assertRegex(cache, r'actions/cache/save@[0-9a-f]{40} ')
+        self.assertIn('key=codex-deps-v1-${output##*/}', cache)
+
     def test_native_metadata_token_is_isolated_from_download_and_execution(self):
         job = JOBS['native-download-smoke']
         metadata, smoke = job.split('      - name: Download, verify, and smoke-test the published release', 1)

@@ -70,6 +70,22 @@ jobs:
         if: github.event_name == 'pull_request'
         run: nix shell --inputs-from . nixpkgs#cargo nixpkgs#rustc nixpkgs#gcc nixpkgs#cargo-nextest --command python3 tests/nextest-flags.py
 
+      - name: Verify Cargo dependency reuse
+        if: github.event_name == 'pull_request'
+        run: nix shell --inputs-from . nixpkgs#cargo nixpkgs#rustc nixpkgs#gcc --command python3 tests/cargo-dependency-cache.py
+
+      - name: Cache release dependencies
+        if: github.event_name == 'pull_request'
+        uses: ./.github/actions/cargo-dependency-cache
+        with:
+          attribute: releaseDeps
+
+      - name: Cache test dependencies
+        if: github.event_name == 'pull_request'
+        uses: ./.github/actions/cargo-dependency-cache
+        with:
+          attribute: testDeps
+
       - name: Build and test Codex binaries
         if: github.event_name == 'pull_request'
         shell: bash
