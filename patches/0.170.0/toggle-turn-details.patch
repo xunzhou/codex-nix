@@ -1,0 +1,40 @@
+--- a/codex-rs/tui/src/app/owned_transcript.rs
++++ b/codex-rs/tui/src/app/owned_transcript.rs
+@@ -939,6 +939,18 @@
+                 return Ok(false);
+             }
+         }
++        if let TuiEvent::Key(key) = event
++            && key.code == KeyCode::F(6)
++            && key.modifiers == KeyModifiers::NONE
++            && key.kind == KeyEventKind::Press
++            && self.chat_widget.no_modal_or_popup_active()
++        {
++            let collapse = &mut self.local_settings.tui.collapse_turn_details;
++            *collapse = !*collapse;
++            self.chat_widget.flash_turn_details(*collapse);
++            tui.frame_requester().schedule_frame();
++            return Ok(true);
++        }
+         // Raw pastes can arrive as thousands of Char/Enter/Tab events. Honor the composer's
+         // paste batching instead of rendering the entire screen before each buffered key.
+         // Keys owned by the transcript and non-text keys still need fresh geometry immediately.
+--- a/codex-rs/tui/src/chatwidget/interaction.rs
++++ b/codex-rs/tui/src/chatwidget/interaction.rs
+@@ -19,6 +19,16 @@
+ }
+ 
+ impl ChatWidget {
++    pub(crate) fn flash_turn_details(&mut self, collapsed: bool) {
++        let message = if collapsed {
++            "Turn details collapsed"
++        } else {
++            "Turn details expanded"
++        };
++        self.bottom_pane
++            .show_footer_flash(message.into(), Duration::from_secs(2));
++    }
++
+     pub(crate) fn current_patch_approval(&self) -> Option<(ThreadId, &str)> {
+         let patch = self.bottom_pane.current_patch_approval()?;
+         Some((patch.thread_id, &patch.id))
