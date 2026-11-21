@@ -1,0 +1,162 @@
+--- a/codex-rs/tui/src/chatwidget/permission_shortcuts.rs
++++ b/codex-rs/tui/src/chatwidget/permission_shortcuts.rs
+@@ -52,7 +52,7 @@
+         let active_profile = self.config.permissions.active_permission_profile();
+         let mut choices = Vec::new();
+         for preset in builtin_approval_presets() {
+-            if !matches!(preset.id, "read-only" | "auto") {
++            if !matches!(preset.id, "read-only" | "auto" | "full-access") {
+                 continue;
+             }
+             for reviewer in [ApprovalsReviewer::User, ApprovalsReviewer::AutoReview] {
+@@ -108,6 +108,7 @@
+                 };
+                 choices.push((
+                     is_current,
++                    preset.clone(),
+                     PermissionProfileSelection {
+                         profile_id: preset.active_permission_profile.id.clone(),
+                         approval_policy: Some(approval),
+@@ -122,15 +123,23 @@
+         }
+         let start = choices
+             .iter()
+-            .position(|(current, _)| *current)
++            .position(|(current, ..)| *current)
+             .map_or(0, |index| index + 1);
+-        if let Some((_, selection)) = choices
++        if let Some((_, preset, selection)) = choices
+             .iter()
+             .cycle()
+             .skip(start)
+             .take(choices.len())
+-            .find(|(current, _)| !current)
++            .find(|(current, ..)| !current)
+         {
++            if preset.id == "full-access" {
++                self.open_full_access_confirmation(
++                    preset.clone(),
++                    /*return_to_permissions*/ true,
++                    Some(selection.clone()),
++                );
++                return true;
++            }
+             self.permission_shortcut_pending = true;
+             self.app_event_tx.send(AppEvent::ApplyPermissionShortcut {
+                 thread_id,
+--- a/codex-rs/tui/src/chatwidget/tests/permission_shortcuts_tests.rs
++++ b/codex-rs/tui/src/chatwidget/tests/permission_shortcuts_tests.rs
+@@ -29,15 +29,49 @@
+     chat.turn_lifecycle.agent_turn_running = true;
+     for (current, reviewer, key, expected, next_reviewer) in [
+         (":workspace", User, KeyCode::F(8), ":workspace", AutoReview),
+-        (":workspace", AutoReview, KeyCode::F(8), ":read-only", User),
++        (
++            ":workspace",
++            AutoReview,
++            KeyCode::F(8),
++            ":danger-full-access",
++            User,
++        ),
+         (":read-only", User, KeyCode::F(8), ":workspace", User),
+-        (":read-only", User, KeyCode::F(7), ":workspace", AutoReview),
++        (
++            ":read-only",
++            User,
++            KeyCode::F(7),
++            ":danger-full-access",
++            User,
++        ),
++        (
++            ":danger-full-access",
++            User,
++            KeyCode::F(8),
++            ":read-only",
++            User,
++        ),
++        (
++            ":danger-full-access",
++            User,
++            KeyCode::F(7),
++            ":workspace",
++            AutoReview,
++        ),
+     ] {
+-        let profile = if current == ":read-only" {
+-            PermissionProfile::read_only()
+-        } else {
+-            PermissionProfile::workspace_write()
++        let (profile, approval) = match current {
++            ":danger-full-access" => (PermissionProfile::Disabled, AskForApproval::Never),
++            ":read-only" => (PermissionProfile::read_only(), AskForApproval::OnRequest),
++            _ => (
++                PermissionProfile::workspace_write(),
++                AskForApproval::OnRequest,
++            ),
+         };
++        chat.config
++            .permissions
++            .approval_policy
++            .set(approval.to_core())
++            .unwrap();
+         chat.config
+             .permissions
+             .set_permission_profile_from_session_snapshot(PermissionProfileSnapshot::active(
+@@ -47,6 +81,21 @@
+             .expect("set current profile");
+         chat.config.approvals_reviewer = reviewer;
+         chat.handle_key_event(KeyEvent::from(key));
++        if expected == ":danger-full-access" {
++            assert!(chat.bottom_pane.has_active_view());
++            assert!(
++                rx.try_recv().is_err(),
++                "shortcut must wait for confirmation"
++            );
++            chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
++            assert_matches!(
++                rx.try_recv(),
++                Ok(AppEvent::SelectPermissionProfile(selection))
++                    if selection.profile_id == expected
++            );
++            while rx.try_recv().is_ok() {}
++            continue;
++        }
+         chat.handle_key_event(KeyEvent::from(key));
+         let AppEvent::ApplyPermissionShortcut {
+             thread_id: target,
+@@ -77,6 +126,11 @@
+     }
+     #[cfg(target_os = "windows")]
+     {
++        chat.config
++            .permissions
++            .approval_policy
++            .set(AskForApproval::OnRequest.to_core())
++            .unwrap();
+         chat.set_windows_sandbox_mode(/*mode*/ None);
+         chat.config
+             .permissions
+@@ -130,7 +184,7 @@
+     for requirements in [
+         serde_json::json!({"allowedApprovalsReviewers": ["auto_review"]}),
+         serde_json::json!({"autoReview": {"requiredOnModels": [chat.current_model()]}}),
+-        serde_json::json!({"allowedPermissionProfiles": {":workspace": false, ":read-only": false}}),
++        serde_json::json!({"allowedPermissionProfiles": {":workspace": false, ":read-only": false, ":danger-full-access": false}}),
+     ] {
+         let mut discovery = crate::permission_discovery::PermissionDiscovery::local(&chat.config);
+         discovery.requirements = Some(serde_json::from_value(requirements).unwrap());
+--- a/codex-rs/tui/src/keymap.rs
++++ b/codex-rs/tui/src/keymap.rs
+@@ -1940,10 +1940,10 @@
+                     alt(KeyCode::Char('.')),
+                     shift(KeyCode::Up)
+                 ],
+-                previous_permission_mode: default_bindings![],
++                previous_permission_mode: vec![KeyBinding::new(KeyCode::Char('p'), KeyModifiers::ALT | KeyModifiers::SHIFT)],
+                 next_model: default_bindings![alt(KeyCode::Char('m'))],
+                 previous_model: vec![KeyBinding::new(KeyCode::Char('m'), KeyModifiers::ALT | KeyModifiers::SHIFT)],
+-                next_permission_mode: default_bindings![],
++                next_permission_mode: default_bindings![alt(KeyCode::Char('p'))],
+                 edit_queued_message: default_bindings![shift(KeyCode::Left), alt(KeyCode::Up)],
+                 prompt_stack_back: default_bindings![shift(KeyCode::Right), alt(KeyCode::Down)],
+                 skip_question: default_bindings![ctrl(KeyCode::Char(']'))],

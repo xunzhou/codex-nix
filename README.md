@@ -119,3 +119,18 @@ previous_model = "alt-shift-m"
 ```
 
 </details>
+
+<details>
+<summary>Alt+P and Alt+Shift+P — cycle permission modes</summary>
+
+Press **Alt+P** to cycle through Read Only, Ask for approval, Approve for me,
+and Full Access. **Alt+Shift+P** cycles in reverse. Unavailable modes are
+skipped. Selecting Full Access opens the usual confirmation before it applies.
+
+```toml
+[tui.keymap.chat]
+next_permission_mode = "alt-p"
+previous_permission_mode = "alt-shift-p"
+```
+
+</details>
