@@ -93,7 +93,8 @@
         "0.171.0/double-esc-interrupt.patch",
         "0.171.0/external-editor-reference.patch",
         "0.171.0/runtime-add-dir.patch",
-        "0.171.0/toggle-turn-details.patch"
+        "0.171.0/toggle-turn-details.patch",
+        "0.171.0/model-cycle.patch"
       ],
       "cargo_hash": "sha256-57GGsc4vgmQnnOXOPf2QaqrW8+02cpc/zotb8Y+rRio="
     }
