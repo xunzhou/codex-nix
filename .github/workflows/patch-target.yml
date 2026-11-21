@@ -48,7 +48,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/update-manifest.py "$TARGET_VERSION"
+          # Use the published target recipe with the patch files from this PR.
+          git show 7c206824c09f7572d4a1ebab4a5384a970ba7feb:build.json > build.json
           test "$(nix eval --raw .#codex.version)" = "$TARGET_VERSION"
           git diff --check
 

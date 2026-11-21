@@ -68,7 +68,9 @@ class ReleaseWorkflowTests(unittest.TestCase):
     def test_patch_target_prepares_and_builds_selected_version(self):
         target = (ROOT / '.github/workflows/patch-target.yml').read_text()
         self.assertIn("TARGET_VERSION: '0.169.0'", target)
-        prepare = target.index('python3 scripts/update-manifest.py "$TARGET_VERSION"')
+        recipe = re.search(r'git show ([0-9a-f]{40}):build.json > build.json', target)
+        self.assertIsNotNone(recipe)
+        prepare = recipe.start()
         self.assertLess(target.index('scripts/reclaim-runner-disk.sh'), prepare)
         self.assertLess(prepare, target.index('python3 tests/source-patcher.py'))
         self.assertLess(prepare, target.index('nix flake check --no-build'))
