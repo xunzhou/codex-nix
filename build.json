@@ -92,7 +92,8 @@
         "0.170.0/live-palette-refresh.patch",
         "0.170.0/double-esc-interrupt.patch",
         "0.170.0/external-editor-reference.patch",
-        "0.170.0/runtime-add-dir.patch"
+        "0.170.0/runtime-add-dir.patch",
+        "0.170.0/toggle-turn-details.patch"
       ],
       "cargo_hash": "sha256-dovquz74E13RYwAGuXRcyhvVAeSDXiqserw9inujf+c="
     }
