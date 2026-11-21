@@ -26,6 +26,10 @@ let
   zstd = "${buildPackages.zstd}/bin/zstd";
   seedTool = ./scripts/cargo-dependency-seed.py;
   testPackages = [ "-p" "codex-core" "-p" "codex-tui" "-p" "codex-config" "--lib" ];
+  testFlags = jobs: testPackages ++ [ "--build-jobs" jobs "-E"
+    # stdenv splits string flags on whitespace. Keep the filter in one token.
+    "(package(codex-tui)&(test(/(^|::|_)esc/)|test(palette_refresh)|test(hook_status_reflows)|test(running_hooks_fit)|test(compaction_status)|test(usage_notice)))|test(add_dir_)|test(external_editor_reference)"
+  ];
 
   # Keep the same source directory, vendoring, linker, Cargo settings and native
   # inputs in the dependency builds and in the patched production build.
@@ -60,10 +64,7 @@ let
     # Installed binaries still come from the release profile below.
     buildType = "release";
     checkType = "ci-test";
-    cargoTestFlags = testPackages ++ [ "--build-jobs" "2" "-E"
-      # stdenv splits this environment variable on whitespace: keep one token.
-      "(package(codex-tui)&(test(/(^|::|_)esc/)|test(palette_refresh)|test(hook_status_reflows)|test(running_hooks_fit)|test(compaction_status)|test(usage_notice)))|test(add_dir_)|test(external_editor_reference)"
-    ];
+    cargoTestFlags = testFlags "2";
     preCheck = ''
       export RUST_MIN_STACK=16777216
       unset NO_COLOR TMUX TERM_PROGRAM
@@ -119,12 +120,21 @@ let
 in
 base.overrideAttrs (old: {
   patches = map (name: ./patches + "/${name}") recipe.patches;
+  preBuild = "export NIX_BUILD_CORES=1";
+  cargoTestFlags = testFlags "1";
   postConfigure = lib.optionalString useDependencyCache ''
     set -o pipefail
     mkdir -p target
-    for archive in ${releaseDeps}/target.tar.zst ${testDeps}/target.tar.zst; do
-      ${zstd} -dc "$archive" | tar -xf - -C target
-    done
+    ${zstd} -dc ${releaseDeps}/target.tar.zst | tar -xf - -C target
+  '';
+  preCheck = old.preCheck + lib.optionalString useDependencyCache ''
+    # Keep only the finished binaries when switching to the separate test profile.
+    mkdir -p release-binaries
+    ${lib.concatMapStringsSep "\n" (name: "mv target/${target}/release/${name} release-binaries/") binaries}
+    rm -rf target
+    mkdir -p target/${target}/release
+    mv release-binaries/* target/${target}/release/
+    ${zstd} -dc ${testDeps}/target.tar.zst | tar -xf - -C target
   '';
   passthru = old.passthru // { inherit releaseDeps testDeps; };
 })
