@@ -16,7 +16,7 @@ runs:
         case "$ATTRIBUTE" in releaseDeps|testDeps) ;; *) exit 2 ;; esac
         output=$(nix eval --raw ".#codex.$ATTRIBUTE.outPath")
         echo "path=$output" >> "$GITHUB_OUTPUT"
-        echo "key=codex-deps-v1-${output##*/}" >> "$GITHUB_OUTPUT"
+        echo "key=codex-deps-v2-${output##*/}" >> "$GITHUB_OUTPUT"
 
     - id: restore
       continue-on-error: true
@@ -34,9 +34,7 @@ runs:
       run: |
         set -euo pipefail
         scheme="file"
-        if ! nix path-info --store "$scheme://$CACHE" --json "$OUTPUT" |
-          jq -e --arg path "$OUTPUT" '.[$path].references == []' >/dev/null ||
-          ! sudo "$(command -v nix)" --extra-experimental-features nix-command copy \
+        if ! sudo "$(command -v nix)" --extra-experimental-features nix-command copy \
             --no-check-sigs --from "$scheme://$CACHE" "$OUTPUT"; then
           echo "::warning::Could not import the cached dependency output; rebuilding locally."
         fi
@@ -61,9 +59,7 @@ runs:
         OUTPUT: ${{ steps.output.outputs.path }}
       run: |
         set -euo pipefail
-        # Dependencies are already archived. Copy only this output, without its build inputs.
-        refs=$(nix-store --query --references "$OUTPUT")
-        test -z "$refs"
+        # Include the store references retained by the compiled dependencies.
         scheme="file"
         if nix copy --to "$scheme://$CACHE?compression=none" "$OUTPUT"; then
           echo "ready=true" >> "$GITHUB_OUTPUT"

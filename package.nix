@@ -112,7 +112,6 @@ let
         | ${zstd} -T2 -3 -o "$out/target.tar.zst"
     '';
     dontFixup = true;
-    allowedReferences = [ ];
   });
 
   releaseDeps = dependencySeed "release";
