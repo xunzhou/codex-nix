@@ -104,3 +104,18 @@ external_editor_include_reference = true
 - Editor backups or sync may retain copies of the reference text.
 
 </details>
+
+<details>
+<summary>Alt+M and Alt+Shift+M — cycle models</summary>
+
+Between turns, press **Alt+M** to select the next available model for the
+current session. Press **Alt+Shift+M** for the previous model. Both shortcuts wrap around. To change the shortcut,
+set the binding in your Codex configuration.
+
+```toml
+[tui.keymap.chat]
+next_model = "alt-m"
+previous_model = "alt-shift-m"
+```
+
+</details>

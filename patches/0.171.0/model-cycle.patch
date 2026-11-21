@@ -1,0 +1,235 @@
+diff --git a/codex-rs/config/src/tui_keymap.rs b/codex-rs/config/src/tui_keymap.rs
+index e1e4cc4..1db7b73 100644
+--- a/codex-rs/config/src/tui_keymap.rs
++++ b/codex-rs/config/src/tui_keymap.rs
+@@ -221,6 +221,10 @@ pub struct TuiChatKeymap {
+     pub increase_reasoning_effort: Option<KeybindingsSpec>,
+     /// Switch to the previous available permission mode.
+     pub previous_permission_mode: Option<KeybindingsSpec>,
++    /// Cycle to the next available model for this session.
++    pub next_model: Option<KeybindingsSpec>,
++    /// Cycle to the previous available model for this session.
++    pub previous_model: Option<KeybindingsSpec>,
+     /// Switch to the next available permission mode.
+     pub next_permission_mode: Option<KeybindingsSpec>,
+     /// Move up through pending async questions, then edit the most recently queued message.
+diff --git a/codex-rs/core/config.schema.json b/codex-rs/core/config.schema.json
+index d960396..e9d7c43 100644
+--- a/codex-rs/core/config.schema.json
++++ b/codex-rs/core/config.schema.json
+@@ -5523,8 +5523,10 @@
+               "edit_queued_message": null,
+               "increase_reasoning_effort": null,
+               "interrupt_turn": null,
++              "next_model": null,
+               "next_permission_mode": null,
+               "open_presets": null,
++              "previous_model": null,
+               "previous_permission_mode": null,
+               "prompt_stack_back": null,
+               "skip_question": null,
+@@ -6098,6 +6100,14 @@
+           ],
+           "description": "Interrupt the active turn."
+         },
++        "next_model": {
++          "allOf": [
++            {
++              "$ref": "#/definitions/KeybindingsSpec"
++            }
++          ],
++          "description": "Cycle to the next available model for this session."
++        },
+         "next_permission_mode": {
+           "allOf": [
+             {
+@@ -6114,6 +6124,14 @@
+           ],
+           "description": "Open saved prompts and slash commands."
+         },
++        "previous_model": {
++          "allOf": [
++            {
++              "$ref": "#/definitions/KeybindingsSpec"
++            }
++          ],
++          "description": "Cycle to the previous available model for this session."
++        },
+         "previous_permission_mode": {
+           "allOf": [
+             {
+@@ -6732,8 +6750,10 @@
+             "edit_queued_message": null,
+             "increase_reasoning_effort": null,
+             "interrupt_turn": null,
++            "next_model": null,
+             "next_permission_mode": null,
+             "open_presets": null,
++            "previous_model": null,
+             "previous_permission_mode": null,
+             "prompt_stack_back": null,
+             "skip_question": null,
+diff --git a/codex-rs/tui/src/chatwidget/interaction.rs b/codex-rs/tui/src/chatwidget/interaction.rs
+index 3e2ca1d..7153fbc 100644
+--- a/codex-rs/tui/src/chatwidget/interaction.rs
++++ b/codex-rs/tui/src/chatwidget/interaction.rs
+@@ -253,7 +253,10 @@ impl ChatWidget {
+             return KeyEventAction::None;
+         }
+ 
+-        if self.handle_reasoning_shortcut(key_event) || self.handle_permission_shortcut(key_event) {
++        if self.handle_model_shortcut(key_event)
++            || self.handle_reasoning_shortcut(key_event)
++            || self.handle_permission_shortcut(key_event)
++        {
+             self.bottom_pane.clear_quit_shortcut_hint();
+             self.quit_shortcut_expires_at = None;
+             self.quit_shortcut_key = None;
+diff --git a/codex-rs/tui/src/chatwidget/slash_dispatch.rs b/codex-rs/tui/src/chatwidget/slash_dispatch.rs
+index af4a664..a02e2da 100644
+--- a/codex-rs/tui/src/chatwidget/slash_dispatch.rs
++++ b/codex-rs/tui/src/chatwidget/slash_dispatch.rs
+@@ -41,6 +41,47 @@ const RAW_USAGE: &str = "Usage: /raw [on|off]";
+ const USAGE_CHATGPT_LOGIN_REQUIRED: &str = "Sign in with ChatGPT to use /usage.";
+ 
+ impl ChatWidget {
++    pub(super) fn handle_model_shortcut(&mut self, key_event: KeyEvent) -> bool {
++        let reverse = self.chat_keymap.previous_model.is_pressed(key_event);
++        if (!reverse && !self.chat_keymap.next_model.is_pressed(key_event))
++            || !self.bottom_pane.no_modal_or_popup_active()
++        {
++            return false;
++        }
++        if self.blocks_direct_input {
++            self.add_error_message(PARENT_OWNED_INPUT_MESSAGE.to_string());
++            return true;
++        }
++        if !self.ensure_slash_command_allowed_in_side_conversation(SlashCommand::Model) {
++            return true;
++        }
++        if self.slash_command_blocked_by_active_task(SlashCommand::Model, SlashCommandDispatchSource::Live) {
++            self.add_error_message("Model switching is disabled while a task is in progress.".to_string());
++            return true;
++        }
++
++        let current = self.current_model();
++        let mut choices = self.model_catalog.models.iter().filter(|m| m.show_in_picker);
++        let next = if reverse {
++            let last = choices.clone().next_back();
++            choices.rfind(|m| m.model == current).and_then(|_| choices.next_back()).or(last)
++        } else {
++            let first = choices.clone().next();
++            choices.find(|m| m.model == current).and_then(|_| choices.next()).or(first)
++        };
++        if let Some(model) = next {
++            if model.model != current {
++                let slug = model.model.clone();
++                self.handle_model_command_args(&slug);
++                self.app_event_tx.send(AppEvent::SettingsSelectionClosed);
++            }
++        } else {
++            self.add_info_message("No models available to cycle through.".to_string(), None);
++        }
++        true
++    }
++
++
+     /// Dispatch a bare slash command and record its staged local-history entry.
+     ///
+     /// The composer stages history before returning `InputResult::Command`; this wrapper commits
+diff --git a/codex-rs/tui/src/keymap.rs b/codex-rs/tui/src/keymap.rs
+index 72929a2..ae0e1be 100644
+--- a/codex-rs/tui/src/keymap.rs
++++ b/codex-rs/tui/src/keymap.rs
+@@ -173,6 +173,10 @@ pub(crate) struct ChatKeymap {
+     pub(crate) increase_reasoning_effort: Vec<KeyBinding>,
+     /// Switch to the previous available permission mode.
+     pub(crate) previous_permission_mode: Vec<KeyBinding>,
++    /// Cycle to the next available model for this session.
++    pub(crate) next_model: Vec<KeyBinding>,
++    /// Cycle to the previous available model for this session.
++    pub(crate) previous_model: Vec<KeyBinding>,
+     /// Switch to the next available permission mode.
+     pub(crate) next_permission_mode: Vec<KeyBinding>,
+     /// Move forward through async questions, then edit the most recently queued message.
+@@ -979,6 +983,8 @@ impl RuntimeKeymap {
+                 chat,
+                 previous_permission_mode
+             ),
++            next_model: resolve_local!(keymap, defaults, chat, next_model),
++            previous_model: resolve_local!(keymap, defaults, chat, previous_model),
+             next_permission_mode: resolve_local!(keymap, defaults, chat, next_permission_mode),
+             edit_queued_message: resolve_bindings(
+                 keymap.chat.edit_queued_message.as_ref(),
+@@ -1935,6 +1941,8 @@ impl RuntimeKeymap {
+                     shift(KeyCode::Up)
+                 ],
+                 previous_permission_mode: default_bindings![],
++                next_model: default_bindings![alt(KeyCode::Char('m'))],
++                previous_model: vec![KeyBinding::new(KeyCode::Char('m'), KeyModifiers::ALT | KeyModifiers::SHIFT)],
+                 next_permission_mode: default_bindings![],
+                 edit_queued_message: default_bindings![shift(KeyCode::Left), alt(KeyCode::Up)],
+                 prompt_stack_back: default_bindings![shift(KeyCode::Right), alt(KeyCode::Down)],
+@@ -2247,6 +2255,8 @@ impl RuntimeKeymap {
+                 "chat.previous_permission_mode",
+                 &self.chat.previous_permission_mode,
+             ),
++            ("chat.next_model", &self.chat.next_model),
++            ("chat.previous_model", &self.chat.previous_model),
+             ("chat.next_permission_mode", &self.chat.next_permission_mode),
+             ("chat.prompt_stack_back", &self.chat.prompt_stack_back),
+             ("chat.skip_question", &self.chat.skip_question),
+@@ -2386,6 +2396,13 @@ impl RuntimeKeymap {
+                 "chat.previous_permission_mode",
+                 self.chat.previous_permission_mode.as_slice(),
+             ),
++            (
++                "chat.next_model",
++                self.chat.next_model.as_slice(),
++            ),            (
++                "chat.previous_model",
++                self.chat.previous_model.as_slice(),
++            ),
+             (
+                 "chat.next_permission_mode",
+                 self.chat.next_permission_mode.as_slice(),
+@@ -2574,6 +2591,13 @@ impl RuntimeKeymap {
+                     "chat.previous_permission_mode",
+                     self.chat.previous_permission_mode.as_slice(),
+                 ),
++                (
++                    "chat.next_model",
++                    self.chat.next_model.as_slice(),
++                ),                (
++                    "chat.previous_model",
++                    self.chat.previous_model.as_slice(),
++                ),
+                 (
+                     "chat.next_permission_mode",
+                     self.chat.next_permission_mode.as_slice(),
+diff --git a/codex-rs/tui/src/keymap/bindings.rs b/codex-rs/tui/src/keymap/bindings.rs
+index 97639e3..7f9b3fd 100644
+--- a/codex-rs/tui/src/keymap/bindings.rs
++++ b/codex-rs/tui/src/keymap/bindings.rs
+@@ -359,6 +359,8 @@ define_runtime_action_bindings! {
+         decrease_reasoning_effort,
+         increase_reasoning_effort,
+         previous_permission_mode,
++        next_model,
++        previous_model,
+         next_permission_mode,
+         edit_queued_message,
+         prompt_stack_back,
+diff --git a/codex-rs/tui/src/keymap_setup/actions.rs b/codex-rs/tui/src/keymap_setup/actions.rs
+index 64878ea..3837b42 100644
+--- a/codex-rs/tui/src/keymap_setup/actions.rs
++++ b/codex-rs/tui/src/keymap_setup/actions.rs
+@@ -154,6 +154,8 @@ define_keymap_actions! {
+         decrease_reasoning_effort => "Decrease reasoning effort.",
+         increase_reasoning_effort => "Increase reasoning effort.",
+         previous_permission_mode => "Switch to the previous available permission mode.",
++        next_model => "Cycle to the next available model for this session.",
++        previous_model => "Cycle to the previous available model for this session.",
+         next_permission_mode => "Switch to the next available permission mode.",
+         edit_queued_message => "Move forward through questions, then edit the last queued message.",
+         prompt_stack_back => "Move back through questions toward the composer.",
