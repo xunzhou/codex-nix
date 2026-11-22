@@ -117,24 +117,47 @@ let
 
   releaseDeps = dependencySeed "release";
   testDeps = dependencySeed "ci-test";
+  published = base.overrideAttrs (old: {
+    patches = map (name: ./patches + "/${name}") recipe.patches;
+    preBuild = "export NIX_BUILD_CORES=1";
+    cargoTestFlags = testFlags "1";
+    postConfigure = lib.optionalString useDependencyCache ''
+      set -o pipefail
+      mkdir -p target
+      ${zstd} -dc ${releaseDeps}/target.tar.zst | tar -xf - -C target
+    '';
+    preCheck = old.preCheck + lib.optionalString useDependencyCache ''
+      # Keep only the finished binaries when switching to the separate test profile.
+      mkdir -p release-binaries
+      ${lib.concatMapStringsSep "\n" (name: "mv target/${target}/release/${name} release-binaries/") binaries}
+      rm -rf target
+      mkdir -p target/${target}/release
+      mv release-binaries/* target/${target}/release/
+      ${zstd} -dc ${testDeps}/target.tar.zst | tar -xf - -C target
+    '';
+  });
+
+  # PR jobs can run the release build and the regression suite on independent
+  # runners. Both use the same patches and Cargo profiles as publication.
+  prBinaries = published.overrideAttrs (_: {
+    checkPhase = ":";
+    preCheck = "";
+  });
+  prTests = published.overrideAttrs (_: {
+    postConfigure = lib.optionalString useDependencyCache ''
+      set -o pipefail
+      mkdir -p target
+      ${zstd} -dc ${testDeps}/target.tar.zst | tar -xf - -C target
+    '';
+    buildPhase = ''
+      runHook preBuild
+      export CARGO_TARGET_DIR="$PWD/target" CARGO_PROFILE_RELEASE_STRIP=false
+      runHook postBuild
+    '';
+    preCheck = base.preCheck;
+    installPhase = ''mkdir -p "$out"'';
+  });
 in
-base.overrideAttrs (old: {
-  patches = map (name: ./patches + "/${name}") recipe.patches;
-  preBuild = "export NIX_BUILD_CORES=1";
-  cargoTestFlags = testFlags "1";
-  postConfigure = lib.optionalString useDependencyCache ''
-    set -o pipefail
-    mkdir -p target
-    ${zstd} -dc ${releaseDeps}/target.tar.zst | tar -xf - -C target
-  '';
-  preCheck = old.preCheck + lib.optionalString useDependencyCache ''
-    # Keep only the finished binaries when switching to the separate test profile.
-    mkdir -p release-binaries
-    ${lib.concatMapStringsSep "\n" (name: "mv target/${target}/release/${name} release-binaries/") binaries}
-    rm -rf target
-    mkdir -p target/${target}/release
-    mv release-binaries/* target/${target}/release/
-    ${zstd} -dc ${testDeps}/target.tar.zst | tar -xf - -C target
-  '';
-  passthru = old.passthru // { inherit releaseDeps testDeps; };
+published.overrideAttrs (old: {
+  passthru = old.passthru // { inherit releaseDeps testDeps prBinaries prTests; };
 })

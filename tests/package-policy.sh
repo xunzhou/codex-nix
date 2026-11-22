@@ -176,7 +176,8 @@ if ! awk '
   fail 'pinned checkout step does not fetch complete history'
 fi
 grep -Fq 'nix flake check --no-build' "$check_workflow"
-grep -Fq 'nix --extra-system-features codex-artifact-publisher build -L .#codex' "$check_workflow"
+grep -Fq 'nix --extra-system-features codex-artifact-publisher build -L .#codex.prBinaries' "$check_workflow"
+grep -Fq 'nix --extra-system-features codex-artifact-publisher build -L .#codex.prTests' "$check_workflow"
 grep -Fq './result/bin/codex --version' "$check_workflow"
 grep -Fq './result/bin/codex-code-mode-host --help' "$check_workflow"
 

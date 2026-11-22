@@ -20,15 +20,19 @@ def artifact_names(job, action):
 
 class ReleaseWorkflowTests(unittest.TestCase):
     def test_compiled_dependency_caches_precede_every_full_build(self):
-        for name in ('check', 'update'):
-            with self.subTest(name=name):
-                workflow = (ROOT / f'.github/workflows/{name}.yml').read_text()
-                release = workflow.index('attribute: releaseDeps')
-                tests = workflow.index('attribute: testDeps')
-                final = workflow.index('build -L .#codex')
-                self.assertLess(release, tests)
-                self.assertLess(tests, final)
-                self.assertEqual(workflow.count('uses: ./.github/actions/cargo-dependency-cache'), 2)
+        update = JOBS['nix']
+        self.assertLess(update.index('attribute: releaseDeps'), update.index('attribute: testDeps'))
+        self.assertLess(update.index('attribute: testDeps'), update.index('build -L .#codex'))
+
+        check = (ROOT / '.github/workflows/check.yml').read_text().split('  pr:\n', 1)[1]
+        self.assertIn("if: github.event_name == 'pull_request'", check)
+        self.assertIn('profile: [release, tests]', check)
+        steps = check.split('      - name: ')
+        for profile, seed, target in [('release', 'releaseDeps', 'prBinaries'),
+                                      ('tests', 'testDeps', 'prTests')]:
+            relevant = '\n'.join(step for step in steps if f"if: matrix.profile == '{profile}'" in step)
+            self.assertLess(relevant.index(f'attribute: {seed}'), relevant.index(f'build -L .#codex.{target}'))
+            self.assertEqual(relevant.count('uses: ./.github/actions/cargo-dependency-cache'), 1)
         cache = (ROOT / '.github/actions/cargo-dependency-cache/action.yml').read_text()
         self.assertNotIn('restore-keys:', cache)
         self.assertRegex(cache, r'actions/cache/restore@[0-9a-f]{40} ')
