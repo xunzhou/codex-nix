@@ -77,7 +77,7 @@ class Actions:
 def available(runner):
     labels = {label['name'].lower() for label in runner['labels']}
     return (runner['status'] == 'online' and not runner['busy']
-            and {'self-hosted', 'linux', 'x64', 'release-build'} <= labels)
+            and 'release-build' in labels)
 
 
 def monitor(api, run_id, clock=time.monotonic, sleep=time.sleep):

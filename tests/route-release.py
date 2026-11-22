@@ -18,7 +18,7 @@ TAG = 'codex-codex-v' + VERSION + '-' + 'b' * 16 + '-' + 'c' * 16
 
 
 def runner(status='online', busy=False, enabled=True):
-    labels = ['self-hosted', 'linux', 'x64'] + (['release-build'] if enabled else [])
+    labels = ['release-build'] if enabled else []
     return dict(id=5, status=status, busy=busy, labels=[{'name': name} for name in labels])
 
 

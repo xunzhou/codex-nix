@@ -49,9 +49,9 @@ fi
 : "${GITHUB_REPOSITORY:=xunzhou/codex-nix}"
 if [[ -z "$prepare_dir" ]]; then
   : "${GITHUB_TOKEN:?GITHUB_TOKEN is required for publication}"
-fi
-if [[ "$GITHUB_REPOSITORY" != "$CODEX_BUNDLE_REPO" ]]; then
-  fail "GITHUB_REPOSITORY must be $CODEX_BUNDLE_REPO"
+  if [[ "$GITHUB_REPOSITORY" != "$CODEX_BUNDLE_REPO" ]]; then
+    fail "GITHUB_REPOSITORY must be $CODEX_BUNDLE_REPO"
+  fi
 fi
 
 require_command() {

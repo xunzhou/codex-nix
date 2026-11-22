@@ -517,6 +517,7 @@ run_publisher() {
     FAKE_EXPECT_FLAKE_REF=. \
     REAL_JQ="$real_jq" \
     REAL_SHA256SUM="$real_sha256sum" \
+    GITHUB_REPOSITORY=xunzhou/codex-nix \
     PUBLISHER_LOG="$log" \
     "${env_args[@]}" bash "$publisher" "${script_args[@]}"
 }
@@ -528,7 +529,7 @@ assert_contains 'dry run' "$dry_run_output" 'dry-run reports its mode'
 [[ ! -s "$dry_run_log" ]] || fail 'dry-run invoked a network or build operation'
 
 prepare_log="$scratch/prepare.log"
-prepare_output=$(run_publisher "$prepare_log" -- --prepare-dir "$scratch/prepared")
+prepare_output=$(run_publisher "$prepare_log" GITHUB_REPOSITORY=fixture/worker -- --prepare-dir "$scratch/prepared")
 assert_contains 'prepared' "$prepare_output" 'prepare mode reports exported artifacts'
 [[ "$(find "$scratch/prepared" -type f | wc -l)" == 3 ]] || fail 'prepare mode omitted Nix assets'
 if grep -q '^curl ' "$prepare_log"; then fail 'prepare mode contacted GitHub'; fi
