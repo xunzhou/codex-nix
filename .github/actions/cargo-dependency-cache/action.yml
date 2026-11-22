@@ -1,0 +1,82 @@
+name: Cache compiled Cargo dependencies
+description: Restore or build one exact Nix output and save it before building Codex
+inputs:
+  attribute:
+    description: Dependency output on the Codex package
+    required: true
+runs:
+  using: composite
+  steps:
+    - id: output
+      shell: bash
+      env:
+        ATTRIBUTE: ${{ inputs.attribute }}
+      run: |
+        set -euo pipefail
+        case "$ATTRIBUTE" in releaseDeps|testDeps) ;; *) exit 2 ;; esac
+        output=$(nix eval --raw ".#codex.$ATTRIBUTE.outPath")
+        echo "path=$output" >> "$GITHUB_OUTPUT"
+        echo "key=codex-deps-v2-${output##*/}" >> "$GITHUB_OUTPUT"
+
+    - id: restore
+      continue-on-error: true
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/codex-deps-${{ inputs.attribute }}
+        key: ${{ steps.output.outputs.key }}
+
+    - name: Import cached output
+      if: steps.restore.outputs.cache-hit == 'true'
+      shell: bash
+      env:
+        CACHE: ${{ runner.temp }}/codex-deps-${{ inputs.attribute }}
+        OUTPUT: ${{ steps.output.outputs.path }}
+      run: |
+        set -euo pipefail
+        scheme="file"
+        if ! sudo "$(command -v nix)" --extra-experimental-features nix-command copy \
+            --no-check-sigs --from "$scheme://$CACHE" "$OUTPUT"; then
+          echo "::warning::Could not import the cached dependency output; rebuilding locally."
+        fi
+
+    - name: Realize dependencies
+      shell: bash
+      env:
+        ATTRIBUTE: ${{ inputs.attribute }}
+        OUTPUT: ${{ steps.output.outputs.path }}
+      run: |
+        set -euo pipefail
+        built=$(nix --extra-system-features codex-artifact-publisher build -L \
+          --no-link --print-out-paths ".#codex.$ATTRIBUTE")
+        test "$built" = "$OUTPUT"
+
+    - name: Export dependency output
+      id: export
+      if: steps.restore.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        CACHE: ${{ runner.temp }}/codex-deps-${{ inputs.attribute }}
+        OUTPUT: ${{ steps.output.outputs.path }}
+      run: |
+        set -euo pipefail
+        # Include the store references retained by the compiled dependencies.
+        scheme="file"
+        if nix copy --to "$scheme://$CACHE?compression=none" "$OUTPUT"; then
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "::warning::Could not stage the dependency output for caching."
+        fi
+
+    - name: Save dependency output
+      if: steps.export.outputs.ready == 'true'
+      continue-on-error: true
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/codex-deps-${{ inputs.attribute }}
+        key: ${{ steps.output.outputs.key }}
+
+    - name: Reclaim cache transfer space
+      shell: bash
+      env:
+        ATTRIBUTE: ${{ inputs.attribute }}
+      run: rm -rf -- "${RUNNER_TEMP:?}/codex-deps-$ATTRIBUTE"

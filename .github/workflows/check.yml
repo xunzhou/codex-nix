@@ -48,8 +48,28 @@ jobs:
         shell: bash
         run: nix flake check --no-build
 
+  pr:
+    name: PR ${{ matrix.profile }}
+    if: github.event_name == 'pull_request'
+    needs: check
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [release, tests]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            system-features = benchmark big-parallel kvm nixos-test codex-artifact-publisher
+
       - name: Reclaim disk space for Codex build
-        if: github.event_name == 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
@@ -59,23 +79,42 @@ jobs:
             bash scripts/reclaim-runner-disk.sh
 
       - name: Install runtime isolation tool
-        if: github.event_name == 'pull_request'
+        if: matrix.profile == 'release'
         run: sudo apt-get update && sudo apt-get install -y bubblewrap
 
       - name: Add memory headroom for optimized Rust tests
-        if: github.event_name == 'pull_request'
         run: bash scripts/setup-build-swap.sh
 
       - name: Validate rendered nextest flags
-        if: github.event_name == 'pull_request'
+        if: matrix.profile == 'tests'
         run: nix shell --inputs-from . nixpkgs#cargo nixpkgs#rustc nixpkgs#gcc nixpkgs#cargo-nextest --command python3 tests/nextest-flags.py
 
-      - name: Build and test Codex binaries
-        if: github.event_name == 'pull_request'
+      - name: Verify Cargo dependency reuse
+        if: matrix.profile == 'tests'
+        run: nix shell --inputs-from . nixpkgs#cargo nixpkgs#rustc nixpkgs#gcc --command python3 tests/cargo-dependency-cache.py
+
+      - name: Cache release dependencies
+        if: matrix.profile == 'release'
+        uses: ./.github/actions/cargo-dependency-cache
+        with:
+          attribute: releaseDeps
+
+      - name: Cache test dependencies
+        if: matrix.profile == 'tests'
+        uses: ./.github/actions/cargo-dependency-cache
+        with:
+          attribute: testDeps
+
+      - name: Run patched workspace tests
+        if: matrix.profile == 'tests'
+        run: nix --extra-system-features codex-artifact-publisher build -L .#codex.prTests
+
+      - name: Build and smoke-test release binaries
+        if: matrix.profile == 'release'
         shell: bash
         run: |
           set -euo pipefail
-          nix --extra-system-features codex-artifact-publisher build -L .#codex
+          nix --extra-system-features codex-artifact-publisher build -L .#codex.prBinaries
           ./result/bin/codex --version
           ./result/bin/codex-code-mode-host --help >/dev/null
           python3 scripts/export-native.py --package result --output-dir "$RUNNER_TEMP/native-assets"

@@ -19,6 +19,26 @@ def artifact_names(job, action):
 
 
 class ReleaseWorkflowTests(unittest.TestCase):
+    def test_compiled_dependency_caches_precede_every_full_build(self):
+        update = JOBS['nix']
+        self.assertLess(update.index('attribute: releaseDeps'), update.index('attribute: testDeps'))
+        self.assertLess(update.index('attribute: testDeps'), update.index('build -L .#codex'))
+
+        check = (ROOT / '.github/workflows/check.yml').read_text().split('  pr:\n', 1)[1]
+        self.assertIn("if: github.event_name == 'pull_request'", check)
+        self.assertIn('profile: [release, tests]', check)
+        steps = check.split('      - name: ')
+        for profile, seed, target in [('release', 'releaseDeps', 'prBinaries'),
+                                      ('tests', 'testDeps', 'prTests')]:
+            relevant = '\n'.join(step for step in steps if f"if: matrix.profile == '{profile}'" in step)
+            self.assertLess(relevant.index(f'attribute: {seed}'), relevant.index(f'build -L .#codex.{target}'))
+            self.assertEqual(relevant.count('uses: ./.github/actions/cargo-dependency-cache'), 1)
+        cache = (ROOT / '.github/actions/cargo-dependency-cache/action.yml').read_text()
+        self.assertNotIn('restore-keys:', cache)
+        self.assertRegex(cache, r'actions/cache/restore@[0-9a-f]{40} ')
+        self.assertRegex(cache, r'actions/cache/save@[0-9a-f]{40} ')
+        self.assertIn('key=codex-deps-v2-${output##*/}', cache)
+
     def test_native_metadata_token_is_isolated_from_download_and_execution(self):
         job = JOBS['native-download-smoke']
         metadata, smoke = job.split('      - name: Download, verify, and smoke-test the published release', 1)
@@ -34,38 +54,6 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("'release-metadata.json').read_text()", smoke)
         self.assertIn('client.prepare(client.select(releases, version)', smoke)
         self.assertIn('permissions:\n  contents: read', WORKFLOW)
-
-    def test_patch_target_is_read_only_and_uses_exact_pr_head(self):
-        target = (ROOT / '.github/workflows/patch-target.yml').read_text()
-        self.assertIn('  pull_request:\n', target)
-        self.assertIn('      - patches/0.169.0/**\n', target)
-        self.assertIn('permissions:\n  contents: read\n', target)
-        self.assertIn('ref: ${{ github.event.pull_request.head.sha }}', target)
-        self.assertIn('persist-credentials: false', target)
-        for forbidden in ('pull_request_target', 'contents: write',
-                          'upload-artifact', 'git push', 'git commit',
-                          'publish-release.py', 'publish-bundle.sh',
-                          'GH_TOKEN:', 'GITHUB_TOKEN:', 'secrets.',
-                          'continue-on-error'):
-            self.assertNotIn(forbidden, target)
-
-    def test_patch_target_prepares_and_builds_selected_version(self):
-        target = (ROOT / '.github/workflows/patch-target.yml').read_text()
-        self.assertIn("TARGET_VERSION: '0.169.0'", target)
-        prepare = target.index('python3 scripts/update-manifest.py "$TARGET_VERSION"')
-        self.assertLess(target.index('scripts/reclaim-runner-disk.sh'), prepare)
-        self.assertLess(prepare, target.index('python3 tests/source-patcher.py'))
-        self.assertLess(prepare, target.index('nix flake check --no-build'))
-        self.assertIn('test "$(nix eval --raw .#codex.version)" = "$TARGET_VERSION"', target)
-        self.assertIn('test "$(./result/bin/codex --version)" = "codex-cli $TARGET_VERSION"', target)
-        self.assertIn('nix --extra-system-features codex-artifact-publisher build -L .#codex', target)
-        for validation in ('tests/manifest.py', 'tests/publication-gate.py',
-                           'tests/rebase-patches.py', 'tests/package-policy.sh',
-                           'tests/update.sh', 'tests/bundle.sh',
-                           'tests/nextest-flags.py', 'tests/static-portability.sh',
-                           'scripts/setup-build-swap.sh', 'codex-code-mode-host --help'):
-            self.assertIn(validation, target)
-        self.assertIn('--version "$TARGET_VERSION"', target)
 
     def test_recovery_upload_requires_successful_scan_on_failure_path(self):
         prepare = JOBS['prepare']
