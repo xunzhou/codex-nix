@@ -1,0 +1,57 @@
+name: Build release
+description: Validate the checked-out release candidate and prepare both artifact formats
+inputs:
+  version:
+    description: Expected Codex version
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Run validation suites
+      shell: bash
+      run: |
+        python3 tests/source-patcher.py
+        python3 tests/manifest.py
+        python3 tests/release.py
+        python3 tests/export-native.py
+        python3 tests/release-workflow.py
+        python3 tests/rebase-patches.py
+        python3 tests/release-client.py
+        python3 tests/release-setup.py
+        bash tests/package-policy.sh
+        bash tests/update.sh
+        bash tests/bundle.sh
+        nix flake check --no-build
+    - name: Validate rendered nextest flags
+      shell: bash
+      run: nix shell --inputs-from . nixpkgs#cargo nixpkgs#rustc nixpkgs#gcc nixpkgs#cargo-nextest --command python3 tests/nextest-flags.py
+
+    - name: Verify Cargo dependency reuse
+      shell: bash
+      run: nix shell --inputs-from . nixpkgs#cargo nixpkgs#rustc nixpkgs#gcc --command python3 tests/cargo-dependency-cache.py
+
+    - name: Cache release dependencies
+      if: runner.environment == 'github-hosted'
+      uses: ./.github/actions/cargo-dependency-cache
+      with:
+        attribute: releaseDeps
+
+    - name: Cache test dependencies
+      if: runner.environment == 'github-hosted'
+      uses: ./.github/actions/cargo-dependency-cache
+      with:
+        attribute: testDeps
+
+    - name: Build, test, and prepare both release formats
+      env:
+        VERSION: ${{ inputs.version }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        nix --extra-system-features codex-artifact-publisher build -L .#codex
+        test "$(./result/bin/codex --version)" = "codex-cli $VERSION"
+        grep -aFqm1 'terminal palette refresh did not return default colors' ./result/bin/codex
+        ./result/bin/codex-code-mode-host --help >/dev/null
+        python3 scripts/export-native.py --package result --output-dir "$RUNNER_TEMP/native-assets" --version "$VERSION"
+        sudo bash tests/static-portability.sh result "$RUNNER_TEMP"/native-assets/codex-native-*.tar.gz
+        bash scripts/publish-bundle.sh --prepare-dir "$RUNNER_TEMP/nix-assets"

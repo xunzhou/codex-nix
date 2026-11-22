@@ -8,6 +8,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = (ROOT / '.github/workflows/update.yml').read_text()
+BUILD_ACTION = (ROOT / '.github/actions/build-release/action.yml').read_text()
 # Job headers have exactly two spaces; nested YAML and embedded scripts do not.
 PARTS = re.split(r'^  ([a-z][a-z0-9-]*):\s*$', WORKFLOW, flags=re.MULTILINE)
 JOBS = dict(zip(PARTS[1::2], PARTS[2::2]))
@@ -20,7 +21,10 @@ def artifact_names(job, action):
 
 class ReleaseWorkflowTests(unittest.TestCase):
     def test_compiled_dependency_caches_precede_every_full_build(self):
-        update = JOBS['nix']
+        update = BUILD_ACTION
+        self.assertIn('uses: ./.github/actions/build-release', JOBS['nix'])
+        self.assertIn('version: ${{ needs.prepare.outputs.version }}', JOBS['nix'])
+        self.assertEqual(update.count("if: runner.environment == 'github-hosted'"), 2)
         self.assertLess(update.index('attribute: releaseDeps'), update.index('attribute: testDeps'))
         self.assertLess(update.index('attribute: testDeps'), update.index('build -L .#codex'))
 
@@ -93,13 +97,13 @@ class ReleaseWorkflowTests(unittest.TestCase):
 
     def test_one_compilation_exports_both_formats(self):
         self.assertNotIn('native', JOBS)
-        self.assertEqual(len(re.findall(r'nix .* build .*\.#codex\b', WORKFLOW)), 1)
-        self.assertNotIn('--build-only', WORKFLOW)
-        self.assertNotIn('setup-musl-toolchain.sh', WORKFLOW)
-        build = JOBS['nix']
+        self.assertEqual(len(re.findall(r'nix .* build .*\.#codex\b', WORKFLOW + BUILD_ACTION)), 1)
+        self.assertNotIn('--build-only', WORKFLOW + BUILD_ACTION)
+        self.assertNotIn('setup-musl-toolchain.sh', WORKFLOW + BUILD_ACTION)
+        build = BUILD_ACTION
         self.assertIn('scripts/export-native.py --package result', build)
         self.assertIn('scripts/publish-bundle.sh --prepare-dir', build)
-        self.assertEqual(artifact_names(build, 'upload'), {'release-nix', 'release-native'})
+        self.assertEqual(artifact_names(JOBS['nix'], 'upload'), {'release-nix', 'release-native'})
         self.assertIn('tests/static-portability.sh result', build)
 
     def test_publication_still_requires_complete_asset_pair(self):
@@ -145,7 +149,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
             workflow = (ROOT / f'.github/workflows/{name}.yml').read_text()
             self.assertIn('bash scripts/setup-build-swap.sh', workflow)
             self.assertIn('apt-get install -y bubblewrap', workflow)
-            self.assertIn('--command python3 tests/nextest-flags.py', workflow)
+            self.assertIn('--command python3 tests/nextest-flags.py', BUILD_ACTION if name == 'update' else workflow)
 
     def test_swap_setup_refuses_local_machine(self):
         result = subprocess.run(['bash', str(ROOT / 'scripts/setup-build-swap.sh')],
