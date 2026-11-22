@@ -55,6 +55,9 @@ class ExportTests(unittest.TestCase):
             self.assertEqual(asset.name, f"codex-native-{expected_key}-linux-x86_64.tar.gz")
             with tarfile.open(asset) as archive:
                 self.assertEqual(set(archive.getnames()), {*contents, "sha256.json", "bundle.json"})
+                for member in archive.getmembers():
+                    self.assertEqual((member.uid, member.gid, member.uname, member.gname),
+                                     (0, 0, "", ""))
                 for name, data in contents.items():
                     self.assertEqual(archive.extractfile(name).read(), data)
                     self.assertEqual(archive.getmember(name).mode, 0o755)

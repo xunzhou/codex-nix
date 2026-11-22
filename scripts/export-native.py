@@ -54,7 +54,12 @@ def export(package, output, version):
             pending = Path(staging) / asset.name
             with tarfile.open(pending, "w:gz", compresslevel=6) as archive:
                 for name in [*spec["binaries"], "sha256.json", "bundle.json"]:
-                    archive.add(bundle / name, arcname=name)
+                    source = bundle / name
+                    info = tarfile.TarInfo(name)
+                    info.size = source.stat().st_size
+                    info.mode = 0o755 if name in spec["binaries"] else 0o644
+                    with source.open("rb") as stream:
+                        archive.addfile(info, stream)
             pending.replace(asset)
         return asset
 

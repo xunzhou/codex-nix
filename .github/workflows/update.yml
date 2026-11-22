@@ -11,6 +11,7 @@ on:
       - package.nix
       - patches/**
       - scripts/**
+      - .github/actions/build-release/**
       - .github/actions/cargo-dependency-cache/**
       - .github/workflows/update.yml
   schedule:
@@ -131,9 +132,33 @@ jobs:
           path: ${{ runner.temp }}/source.bundle
           retention-days: 14
 
+  route:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 250
+    outputs:
+      run_id: ${{ steps.build.outputs.run_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.base }}
+          persist-credentials: false
+      - name: Select build environment
+        id: build
+        if: github.ref == 'refs/heads/main'
+        env:
+          BUILD_REPOSITORY: ${{ secrets.BUILD_REPOSITORY }}
+          BUILD_DISPATCH_TOKEN: ${{ secrets.BUILD_DISPATCH_TOKEN }}
+          SOURCE_RUN_ID: ${{ github.run_id }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.sha }}
+          SOURCE_BASE: ${{ needs.prepare.outputs.base }}
+          BUNDLE_SHA256: ${{ needs.prepare.outputs.bundle_sha256 }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: python3 scripts/route-release.py select
+
   nix:
     name: Build once and prepare both release formats
-    needs: prepare
+    needs: [prepare, route]
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     steps:
@@ -160,31 +185,47 @@ jobs:
             test "$EXPECTED_SHA" = "$EXPECTED_BASE"
           fi
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Import verified build artifacts
+        if: needs.route.outputs.run_id != '' && needs.route.outputs.run_id != '0'
+        env:
+          BUILD_REPOSITORY: ${{ secrets.BUILD_REPOSITORY }}
+          BUILD_DISPATCH_TOKEN: ${{ secrets.BUILD_DISPATCH_TOKEN }}
+          BUILD_RUN_ID: ${{ needs.route.outputs.run_id }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.sha }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: python3 scripts/route-release.py import
       - name: Install Nix
+        if: needs.route.outputs.run_id == '' || needs.route.outputs.run_id == '0'
         uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           extra_nix_config: |
             system-features = benchmark big-parallel kvm nixos-test codex-artifact-publisher
       - name: Reclaim runner disk space
+        if: needs.route.outputs.run_id == '' || needs.route.outputs.run_id == '0'
         run: sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" bash scripts/reclaim-runner-disk.sh
       - name: Install runtime isolation tool
+        if: needs.route.outputs.run_id == '' || needs.route.outputs.run_id == '0'
         run: sudo apt-get update && sudo apt-get install -y bubblewrap
 
       - name: Add memory headroom for optimized Rust tests
+        if: needs.route.outputs.run_id == '' || needs.route.outputs.run_id == '0'
         run: bash scripts/setup-build-swap.sh
       - uses: ./.github/actions/build-release
+        if: needs.route.outputs.run_id == '' || needs.route.outputs.run_id == '0'
         with:
           version: ${{ needs.prepare.outputs.version }}
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: release-nix
           path: ${{ runner.temp }}/nix-assets/*
+          if-no-files-found: error
           retention-days: 14
 
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: release-native
           path: ${{ runner.temp }}/native-assets/codex-native-*.tar.gz
+          if-no-files-found: error
           retention-days: 14
 
   publish:
