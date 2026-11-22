@@ -47,7 +47,7 @@ runs:
       run: |
         set -euo pipefail
         built=$(nix --extra-system-features codex-artifact-publisher build -L \
-          --no-link --print-out-paths ".#codex.$ATTRIBUTE")
+          --cores 2 --max-jobs 1 --no-link --print-out-paths ".#codex.$ATTRIBUTE")
         test "$built" = "$OUTPUT"
 
     - name: Export dependency output

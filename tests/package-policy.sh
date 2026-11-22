@@ -224,14 +224,13 @@ effective_build_cores=$(
   eval "$codex_pre_build"
   printf '%s' "$NIX_BUILD_CORES"
 )
-[[ "$effective_build_cores" == 1 ]] ||
-  fail "Codex build permits $effective_build_cores concurrent Cargo jobs"
+[[ "$effective_build_cores" == 8 ]] ||
+  fail "Codex build overrode the runner allocation with $effective_build_cores jobs"
 
 # concatTo in stdenv splits string flags on whitespace. The filter must survive
 # that conversion as one argument, with every original patch selector present.
 read -r -a codex_test_flags <<<"$(jq -r \
   '.derivations | to_entries[0].value.env.cargoTestFlags' <<<"$codex_derivation")"
-[[ " ${codex_test_flags[*]} " == *" --build-jobs 1 "* ]] || fail 'final test compilation must use one job'
 ((${#codex_test_flags[@]} >= 2)) || fail 'missing patch test flags'
 [[ ${codex_test_flags[-2]} == -E ]] || fail 'nextest filter split across arguments'
 [[ ${codex_test_flags[-1]} == *'test(/(^|::|_)esc/)'* ]] ||

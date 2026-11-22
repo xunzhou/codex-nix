@@ -26,7 +26,7 @@ let
   zstd = "${buildPackages.zstd}/bin/zstd";
   seedTool = ./scripts/cargo-dependency-seed.py;
   testPackages = [ "-p" "codex-core" "-p" "codex-tui" "-p" "codex-config" "--lib" ];
-  testFlags = jobs: testPackages ++ [ "--build-jobs" jobs "-E"
+  testFlags = testPackages ++ [ "-E"
     # stdenv splits string flags on whitespace. Keep the filter in one token.
     "(package(codex-tui)&(test(/(^|::|_)esc/)|test(palette_refresh)|test(hook_status_reflows)|test(running_hooks_fit)|test(compaction_status)|test(usage_notice)))|test(add_dir_)|test(external_editor_reference)"
   ];
@@ -49,9 +49,6 @@ let
       find "$cargoDepsCopy" -exec touch -h -d @1 {} +
     '';
     cargoBuildFlags = lib.concatMap (name: [ "-p" recipe.binaries.${name}.package ]) binaries;
-    preBuild = ''
-      export NIX_BUILD_CORES=2
-    '';
     requiredSystemFeatures = [ "codex-artifact-publisher" ];
     OPENSSL_NO_VENDOR = 1;
     OPENSSL_STATIC = 1;
@@ -64,8 +61,10 @@ let
     # Installed binaries still come from the release profile below.
     buildType = "release";
     checkType = "ci-test";
-    cargoTestFlags = testFlags "2";
+    cargoTestFlags = testFlags;
     preCheck = ''
+      # nextest's -j controls running tests; its Cargo build has a separate limit.
+      cargoTestFlags="--build-jobs $NIX_BUILD_CORES $cargoTestFlags"
       export RUST_MIN_STACK=16777216
       unset NO_COLOR TMUX TERM_PROGRAM
       export TERM=xterm-256color
@@ -101,10 +100,10 @@ let
       (cd codex-rs && ${python} ${seedTool} stub)
     '';
     ${if profile == "ci-test" then "buildPhase" else null} = ''
-      export CARGO_TARGET_DIR="$PWD/target" NIX_BUILD_CORES=2 CARGO_PROFILE_RELEASE_STRIP=false
+      export CARGO_TARGET_DIR="$PWD/target" CARGO_PROFILE_RELEASE_STRIP=false
       cargoNextestHook
     '';
-    cargoTestFlags = testPackages ++ [ "--build-jobs" "2" "--no-run" ];
+    cargoTestFlags = testPackages ++ [ "--no-run" ];
     installPhase = ''
       (cd codex-rs && ${python} ${seedTool} clean --profile ${profile} --target ${target})
       mkdir -p "$out"
@@ -119,8 +118,6 @@ let
   testDeps = dependencySeed "ci-test";
   published = base.overrideAttrs (old: {
     patches = map (name: ./patches + "/${name}") recipe.patches;
-    preBuild = "export NIX_BUILD_CORES=1";
-    cargoTestFlags = testFlags "1";
     postConfigure = lib.optionalString useDependencyCache ''
       set -o pipefail
       mkdir -p target

@@ -139,10 +139,12 @@ class ReleaseWorkflowTests(unittest.TestCase):
             self.assertIn(f'test({selector})', package)
             self.assertIn(f'test({selector})', native)
         self.assertIn('"-p" "codex-config"', package)
-        self.assertIn('export NIX_BUILD_CORES=2', package)
-        # The Nix nextest hook supplies -j for test concurrency. Compilation has
-        # its own --build-jobs flag; duplicating --test-threads is a CLI error.
-        self.assertIn('"--build-jobs" "2"', package)
+        self.assertNotIn('export NIX_BUILD_CORES=', package)
+        self.assertIn('cargoTestFlags="--build-jobs $NIX_BUILD_CORES $cargoTestFlags"', package)
+        self.assertIn('cores = 1', JOBS['nix'])
+        self.assertIn('max-jobs = 1', JOBS['nix'])
+        cache = (ROOT / '.github/actions/cargo-dependency-cache/action.yml').read_text()
+        self.assertIn('--cores 2 --max-jobs 1', cache)
         self.assertNotIn('"--test-threads', package)
         self.assertIn('pkgs.pkgsStatic.callPackage ./package.nix', (ROOT / 'flake.nix').read_text())
         for name in ('update', 'check'):

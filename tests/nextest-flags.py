@@ -17,15 +17,20 @@ SELECTORS = ('esc', 'escape_closes', 'backtrack_esc', 'vim_escape_recovery',
              'compaction_status', 'usage_notice', 'add_dir_confirmation', 'external_editor_reference')
 
 
-def main():
+def attributes_for(attribute):
     data = json.loads(subprocess.check_output([
         'nix', '--extra-experimental-features', 'nix-command flakes',
-        'derivation', 'show', str(ROOT) + '#codex'], text=True))
-    attributes = next(iter(data['derivations'].values()))['env']
+        'derivation', 'show', str(ROOT) + '#' + attribute], text=True))
+    return next(iter(data['derivations'].values()))['env']
+
+
+def main():
+    attributes = attributes_for('codex')
+    shared_precheck = attributes_for('codex.prTests')['preCheck']
+    if not attributes['preCheck'].startswith(shared_precheck):
+        raise SystemExit('release and PR builds must use the same nextest setup')
     if attributes['cargoBuildType'] != 'release' or attributes['cargoCheckType'] != 'ci-test':
         raise SystemExit('expected release binaries and ci-test regression tests')
-    # This deliberately matches stdenv's concatTo behavior for string flags.
-    flags = attributes['cargoTestFlags'].split()
     with tempfile.TemporaryDirectory(prefix='codex-nextest-flags-') as directory:
         fixture = Path(directory)
         (fixture / 'Cargo.toml').write_text(
@@ -63,17 +68,27 @@ def main():
         host = next(line.removeprefix('host: ') for line in version.splitlines()
                     if line.startswith('host: '))
         # Match cargoNextestHook, using the host target only for this tiny test.
-        command = ['cargo', 'nextest', 'run', '--target', host, '--offline',
-                   '--show-progress=none', '-j', '2', '--cargo-profile',
-                   attributes['cargoCheckType'], '--user-config-file', 'none',
-                   *flags, '--']
-        result = subprocess.run(command, cwd=fixture, env=environment,
-                                capture_output=True, text=True)
-        output = result.stdout + result.stderr
-        expected = len(SELECTORS) + 3  # Nested Escape, core policy, editor config.
-        if result.returncode or not re.search(rf'{expected} tests run:\s+{expected} passed', output):
-            raise SystemExit('nextest flag preflight failed:\n' + output)
-        print(f'nextest flag preflight: all {expected} selected tests passed; unrelated tests excluded')
+        for cores in ('1', '8'):
+            # Evaluate the actual derivation hook before stdenv splits string flags.
+            rendered = subprocess.check_output(
+                ['bash', '-eu', '-c', shared_precheck + '\nprintf "%s" "$cargoTestFlags"'],
+                cwd=fixture, text=True, env=dict(environment, TMPDIR=directory,
+                    NIX_BUILD_CORES=cores, cargoTestFlags=attributes['cargoTestFlags']))
+            flags = rendered.split()
+            if flags[:2] != ['--build-jobs', cores]:
+                raise SystemExit('nextest compilation must honor the runner allocation')
+            command = ['cargo', 'nextest', 'run', '--target', host, '--offline',
+                       '--show-progress=none', '-j', cores, '--cargo-profile',
+                       attributes['cargoCheckType'], '--user-config-file', 'none',
+                       *flags, '--']
+            result = subprocess.run(command, cwd=fixture, env=environment,
+                                    capture_output=True, text=True)
+            output = result.stdout + result.stderr
+            expected = len(SELECTORS) + 3  # Nested Escape, core policy, editor config.
+            if result.returncode or not re.search(rf'{expected} tests run:\s+{expected} passed', output):
+                raise SystemExit('nextest flag preflight failed:\n' + output)
+            print(f'nextest flag preflight ({cores} cores): all {expected} selected tests passed; unrelated tests excluded')
+
 
 
 if __name__ == '__main__':
