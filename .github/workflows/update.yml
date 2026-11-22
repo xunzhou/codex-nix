@@ -135,7 +135,7 @@ jobs:
   route:
     needs: prepare
     runs-on: ubuntu-24.04
-    timeout-minutes: 250
+    timeout-minutes: 360
     outputs:
       run_id: ${{ steps.build.outputs.run_id }}
     steps:
@@ -160,7 +160,7 @@ jobs:
     name: Build once and prepare both release formats
     needs: [prepare, route]
     runs-on: ubuntu-24.04
-    timeout-minutes: 240
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
