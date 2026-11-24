@@ -31,12 +31,12 @@ def load_recipe(manifest, version):
             "release_repository": data["release_repository"]}
 
 
-def recipe_key(spec, patches, version):
+def recipe_key(spec, patches, version, *, machine=None):
     identity = hashlib.sha256()
     for item in (Path(__file__).resolve(), *patches):
         identity.update(item.name.encode() + b"\0" + item.read_bytes() + b"\0")
     identity.update(json.dumps(spec, sort_keys=True).encode())
-    identity.update(f"{version}:{platform.system()}:{platform.machine()}".encode())
+    identity.update(f"{version}:{platform.system()}:{machine or platform.machine()}".encode())
     return f"{version}-{identity.hexdigest()}"
 
 
@@ -118,7 +118,7 @@ def http_download(url, destination):
 def unified_bundle_url(spec, key, scratch):
     """Find an exact recipe asset, including older releases beyond the first page."""
     repository = spec["release_repository"]
-    name = f"codex-native-{key}-linux-x86_64.tar.gz"
+    name = f"codex-native-{key}-linux-{platform.machine()}.tar.gz"
     page = 1
     while True:
         metadata = scratch / "releases.json"
@@ -146,7 +146,7 @@ def unified_bundle_url(spec, key, scratch):
 
 
 def download_bundle(spec, key, cache, bundle, version, binaries):
-    if platform.machine() != "x86_64":
+    if platform.machine() not in {"x86_64", "aarch64"}:
         return False
     with tempfile.TemporaryDirectory(prefix="release-", dir=cache) as temporary:
         scratch = Path(temporary)
@@ -402,7 +402,7 @@ def main():
                 with tarfile.open(args.output, "w:gz") as archive:
                     for name in [*binaries, "sha256.json", "bundle.json"]:
                         archive.add(bundle / name, arcname=name)
-                print(f"Native release asset: codex-native-{key}-linux-x86_64.tar.gz")
+                print(f"Native release asset: codex-native-{key}-linux-{platform.machine()}.tar.gz")
             print(f"Verified native bundle: {bundle}")
         else:
             install_bundle(bundle, vendor, privilege, binaries)

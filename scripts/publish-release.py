@@ -154,29 +154,34 @@ def publish(api, assets, tag, revision, expected_native, expected_output, recipe
     manifest_name = f'codex-{tag}-manifest.json'
     local, inventory = nix_identity(assets, manifest_name)
     require(local['tag'] == tag and local['output_path'] == expected_output
-            and local['codex_version'] == expected_native['version'], 'Nix source identity mismatch')
+            and local['codex_version'] == expected_native['x86_64']['version'], 'Nix source identity mismatch')
     require(sha256(assets / local['archive']) == inventory[local['archive']], 'local Nix archive digest mismatch')
-    native_name = f'codex-native-{expected_native["key"]}-linux-x86_64.tar.gz'
-    native_identity(assets / native_name, expected_native)
-    recipe_name = f'codex-recipe-{expected_native["key"]}.tar.gz'
-    write_recipe(assets / recipe_name, recipe_files)
+    native_artifacts = {}
+    recipe_names = set()
+    for machine, expected in expected_native.items():
+        native_name = f'codex-native-{expected["key"]}-linux-{machine}.tar.gz'
+        native_identity(assets / native_name, expected)
+        native_artifacts[native_name] = expected
+        recipe_name = f'codex-recipe-{expected["key"]}.tar.gz'
+        write_recipe(assets / recipe_name, recipe_files)
+        recipe_names.add(recipe_name)
     nix_names = {manifest_name, local['archive'], f'codex-{tag}-SHA256SUMS'}
-    names = nix_names | {native_name, recipe_name}
+    names = nix_names | native_artifacts.keys() | recipe_names
     release_tag = f'bundle-{tag}'
     release = api.request(f'/releases/tags/{release_tag}')
     if release is None:
         release = api.request('/releases', {'tag_name': release_tag, 'target_commitish': revision,
                               'name': f'Codex {local["codex_version"]} — Nix and Linux',
-                              'body': 'Verified Nix closure and static x86_64 Linux (musl) binaries built from '
-                                      'the same patched source. The native archive runs on any x86_64 Linux '
-                                      'without system libraries; the recipe archive lets installers re-verify it. '
+                              'body': 'Verified x86_64 Nix closure and static Linux (musl) tarballs for '
+                                      'x86_64 and ARM64, built from the same patched source. '
+                                      'Recipe archives let installers re-verify the binaries. '
                                       'Assets are recipe-specific and never overwritten.',
                               'draft': True, 'make_latest': 'false'})
     require(release['tag_name'] == release_tag, 'release tag mismatch')
     remote = {asset['name']: asset for asset in release['assets']}
     require(len(remote) == len(release['assets']), 'duplicate release asset')
     for name, asset in remote.items():
-        require(name in nix_names or re.fullmatch(r'codex-(native-[0-9]+\.[0-9]+\.[0-9]+-[a-f0-9]{64}-linux-x86_64|recipe-[0-9]+\.[0-9]+\.[0-9]+-[a-f0-9]{64})\.tar\.gz', name),
+        require(name in nix_names or re.fullmatch(r'codex-(native-[0-9]+\.[0-9]+\.[0-9]+-[a-f0-9]{64}-linux-(?:x86_64|aarch64)|recipe-[0-9]+\.[0-9]+\.[0-9]+-[a-f0-9]{64})\.tar\.gz', name),
                 'unexpected release asset')
         require(asset['state'] == 'uploaded' and re.fullmatch(r'sha256:[a-f0-9]{64}', asset['digest']),
                 'invalid release asset digest')
@@ -198,12 +203,13 @@ def publish(api, assets, tag, revision, expected_native, expected_output, recipe
             # Incomplete drafts can resume only with byte-identical prepared artifacts.
             for name in present_nix:
                 require(remote[name]['digest'] == 'sha256:' + sha256(assets / name), 'partial draft differs; use original run artifacts')
-        if native_name in remote:
-            api.download(remote[native_name], scratch / native_name)
-            native_identity(scratch / native_name, expected_native)
-        if recipe_name in remote:
-            api.download(remote[recipe_name], scratch / recipe_name)
-            recipe_identity(scratch / recipe_name, recipe_files)
+        for name, expected in native_artifacts.items():
+            if name in remote:
+                api.download(remote[name], scratch / name)
+                native_identity(scratch / name, expected)
+        for name in recipe_names & remote.keys():
+            api.download(remote[name], scratch / name)
+            recipe_identity(scratch / name, recipe_files)
     for name in sorted(names - remote.keys()):
         api.upload(release['id'], assets / name)
     final = api.request(f'/releases/{release["id"]}')
@@ -239,8 +245,11 @@ def main():
     manifest = json.loads((root / 'build.json').read_text())
     version = manifest['default_version']
     recipe = native.load_recipe(root / 'build.json', version)
-    key = native.recipe_key(recipe, [root / 'patches' / p for p in recipe['patches']], version)
-    expected = {'key': key, 'version': version}
+    patches = [root / 'patches' / p for p in recipe['patches']]
+    expected = {
+        machine: {'key': native.recipe_key(recipe, patches, version, machine=machine), 'version': version}
+        for machine in recipe['native_release_architectures']
+    }
     recipe_files = {'build.json': root / 'build.json',
                     'scripts/install-source-codex.py': root / 'scripts/install-source-codex.py',
                     **{'patches/' + p: root / 'patches' / p for p in recipe['patches']}}

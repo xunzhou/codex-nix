@@ -25,6 +25,7 @@ native = module('native', 'scripts/install-source-codex.py')
 TAG = 'codex-v0.154.0-' + 'a' * 16 + '-' + 'b' * 16
 OUTPUT = '/nix/store/' + 'c' * 32 + '-codex'
 EXPECTED = {'key': '0.154.0-' + 'd' * 64, 'version': '0.154.0'}
+ARM = dict(EXPECTED, key='0.154.0-' + 'f' * 64)
 
 
 class FakeGitHub:
@@ -75,6 +76,8 @@ class ReleaseTests(unittest.TestCase):
         self.write_manifest()
         self.native_name = f'codex-native-{EXPECTED["key"]}-linux-x86_64.tar.gz'
         self.write_native(EXPECTED)
+        self.arm_name = f'codex-native-{ARM["key"]}-linux-aarch64.tar.gz'
+        self.write_native(ARM, self.arm_name)
         self.recipe_name = f'codex-recipe-{EXPECTED["key"]}.tar.gz'
         recipe_temp = tempfile.TemporaryDirectory()
         self.addCleanup(recipe_temp.cleanup)
@@ -88,19 +91,19 @@ class ReleaseTests(unittest.TestCase):
         (self.assets / f'codex-{TAG}-SHA256SUMS').write_text(''.join(
             f'{publisher.sha256(self.assets / name)}  {name}\n' for name in (self.archive_name, self.manifest_name)))
 
-    def write_native(self, expected):
+    def write_native(self, expected, name=None):
         import hashlib
         files = {'codex': b'cli', 'codex-code-mode-host': b'host'}
         files['sha256.json'] = json.dumps({name: hashlib.sha256(data).hexdigest() for name, data in files.items()}).encode()
         files['bundle.json'] = json.dumps(expected).encode()
-        with tarfile.open(self.assets / self.native_name, 'w:gz') as archive:
+        with tarfile.open(self.assets / (name or self.native_name), 'w:gz') as archive:
             for name, data in files.items():
                 info = tarfile.TarInfo(name)
                 info.size = len(data)
                 archive.addfile(info, io.BytesIO(data))
 
     def publish(self):
-        publisher.publish(self.api, self.assets, TAG, 'e' * 40, EXPECTED, OUTPUT, self.recipe_files)
+        publisher.publish(self.api, self.assets, TAG, 'e' * 40, {'x86_64': EXPECTED, 'aarch64': ARM}, OUTPUT, self.recipe_files)
 
     def test_draft_published_only_with_both_backends(self):
         (self.assets / 'source.zip').write_bytes(b'not a release asset')
@@ -109,8 +112,10 @@ class ReleaseTests(unittest.TestCase):
         self.assertTrue(create['draft'])
         self.assertEqual(create['tag_name'], 'bundle-' + TAG)
         self.assertFalse(self.api.release['draft'])
-        self.assertEqual(len(self.api.release['assets']), 5)
+        self.assertEqual(len(self.api.release['assets']), 7)
         self.assertIn(self.recipe_name, self.api.files)
+        self.assertIn(self.arm_name, self.api.files)
+        self.assertIn(f'codex-recipe-{ARM["key"]}.tar.gz', self.api.files)
         self.assertEqual(self.api.calls[-1][2], 'PATCH')
         self.assertEqual(self.api.calls[-1][1], {'draft': False, 'make_latest': 'true'})
 
@@ -174,6 +179,12 @@ class ReleaseTests(unittest.TestCase):
         self.publish()
         self.assertEqual(self.api.files[self.archive_name], b'nix closure')
 
+    def test_missing_arm64_archive_never_creates_release(self):
+        (self.assets / self.arm_name).unlink()
+        with self.assertRaises(FileNotFoundError):
+            self.publish()
+        self.assertIsNone(self.api.release)
+
     def test_wrong_native_recipe_never_creates_release(self):
         self.write_native(dict(EXPECTED, key='wrong'))
         with self.assertRaisesRegex(ValueError, 'native recipe mismatch'):
@@ -225,6 +236,7 @@ class ReleaseTests(unittest.TestCase):
 
 class DiscoveryTests(unittest.TestCase):
     def setUp(self):
+        self.enterContext(patch.object(native.platform, 'machine', return_value='x86_64'))
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.scratch = Path(self.temp.name)

@@ -50,6 +50,9 @@ let
     '';
     cargoBuildFlags = lib.concatMap (name: [ "-p" recipe.binaries.${name}.package ]) binaries;
     requiredSystemFeatures = [ "codex-artifact-publisher" ];
+    # The combined tag includes the derivation hash. Keep older installers on
+    # releases whose asset inventory they recognize.
+    CODEX_NATIVE_RELEASE_ARCHITECTURES = lib.concatStringsSep "," recipe.native_release_architectures;
     OPENSSL_NO_VENDOR = 1;
     OPENSSL_STATIC = 1;
     AWS_LC_SYS_NO_JITTER_ENTROPY = 1;

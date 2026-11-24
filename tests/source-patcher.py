@@ -133,13 +133,13 @@ for name in ('codex','codex-code-mode-host'):
         commands.mkdir()
         curl = commands / 'curl'
         curl.write_text('''#!/usr/bin/env python3
-import json,os,shutil,sys,tarfile
+import json,os,platform,shutil,sys,tarfile
 url=sys.argv[-1]
 output=sys.argv[sys.argv.index('--output')+1]
 if os.environ['UNIFIED'] == '1':
     with tarfile.open(os.environ['PUBLISHED_BUNDLE']) as bundle:
         key=json.load(bundle.extractfile('bundle.json'))['key']
-    name='codex-native-'+key+'-linux-x86_64.tar.gz'
+    name='codex-native-'+key+'-linux-'+platform.machine()+'.tar.gz'
     tag='bundle-codex-v0.154.0-'+('a'*16)+'-'+('b'*16)
     if '/releases?per_page=100&page=1' in url:
         with open(output,'w') as stream:
@@ -177,7 +177,7 @@ print('200',end='')
         tag = 'bundle-codex-v0.154.0-' + 'a'*16 + '-' + 'b'*16
         def download(url, out):
             if '/releases?' in url:
-                out.write_text(json.dumps([{'tag_name': tag, 'assets': [{'name': 'codex-native-wrong-recipe-linux-x86_64.tar.gz'}]}]))
+                out.write_text(json.dumps([{'tag_name': tag, 'assets': [{'name': f'codex-native-wrong-recipe-linux-{PATCHER.platform.machine()}.tar.gz'}]}]))
             else:
                 shutil.copyfile(archive, out)
             return True

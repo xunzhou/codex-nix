@@ -230,11 +230,81 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  native-arm64:
+    name: Build static ARM64 Linux tarball
+    needs: prepare
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.base }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        if: needs.prepare.outputs.changed == 'true'
+        with:
+          name: release-source
+          path: ${{ runner.temp }}/release-source
+      - name: Restore exact candidate commit
+        env:
+          EXPECTED_SHA: ${{ needs.prepare.outputs.sha }}
+          EXPECTED_BASE: ${{ needs.prepare.outputs.base }}
+          BUNDLE_SHA256: ${{ needs.prepare.outputs.bundle_sha256 }}
+          CHANGED: ${{ needs.prepare.outputs.changed }}
+        run: |
+          if [[ "$CHANGED" == true ]]; then
+            python3 scripts/publication_gate.py restore-bundle --input "$RUNNER_TEMP/release-source/source.bundle" \
+              --base "$EXPECTED_BASE" --head "$EXPECTED_SHA" --sha256 "$BUNDLE_SHA256"
+          else
+            test "$EXPECTED_SHA" = "$EXPECTED_BASE"
+          fi
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Configure ARM64 musl toolchain
+        run: |
+          python3 -m venv "$RUNNER_TEMP/zig"
+          "$RUNNER_TEMP/zig/bin/pip" install --no-cache-dir ziglang==0.15.2
+          mkdir -p "$RUNNER_TEMP/bin"
+          printf '#!/bin/sh\nexec "%s" -m ziglang "$@"\n' "$RUNNER_TEMP/zig/bin/python" > "$RUNNER_TEMP/bin/zig"
+          chmod +x "$RUNNER_TEMP/bin/zig"
+          export PATH="$RUNNER_TEMP/bin:$PATH"
+          bash scripts/setup-musl-toolchain.sh aarch64-unknown-linux-musl
+          df -h "$RUNNER_TEMP"
+      - name: Build and verify static binaries
+        run: |
+          export CODEX_PATCH_CACHE="$RUNNER_TEMP/codex-patched"
+          archive="$RUNNER_TEMP/codex-arm64.tar.gz"
+          python3 scripts/install-source-codex.py --build-only --output "$archive"
+          mkdir "$RUNNER_TEMP/native-arm64" "$RUNNER_TEMP/verify"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/verify"
+          for name in codex codex-code-mode-host; do
+            binary="$RUNNER_TEMP/verify/$name"
+            readelf -hW "$binary" | grep 'Machine:.*AArch64'
+            if readelf -lW "$binary" | grep -w INTERP || readelf -dW "$binary" | grep '(NEEDED)'; then
+              echo "Dynamically linked binary: $name" >&2
+              exit 1
+            fi
+          done
+          key=$(jq -er '.key | select(test("^[0-9]+[.][0-9]+[.][0-9]+-[a-f0-9]{64}$"))' "$RUNNER_TEMP/verify/bundle.json")
+          mv "$archive" "$RUNNER_TEMP/native-arm64/codex-native-$key-linux-aarch64.tar.gz"
+          df -h "$RUNNER_TEMP"
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: release-native-arm64
+          path: ${{ runner.temp }}/native-arm64/*.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
   publish:
     name: Publish combined release
-    needs: [prepare, nix]
+    needs: [prepare, nix, native-arm64]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
+    outputs:
+      release_tag: ${{ steps.release.outputs.tag }}
     permissions:
       contents: write
     steps:
@@ -274,6 +344,10 @@ jobs:
         with:
           name: release-native
           path: ${{ runner.temp }}/release-assets
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-native-arm64
+          path: ${{ runner.temp }}/release-assets
       - name: Push candidate only after build and verification pass
         if: needs.prepare.outputs.changed == 'true'
         env:
@@ -283,6 +357,7 @@ jobs:
           git config --local core.hooksPath .githooks
           git push --force-with-lease="refs/heads/main:$BASE_SHA" origin HEAD:refs/heads/main
       - name: Publish or verify artifacts and refresh GitHub Latest
+        id: release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -292,6 +367,7 @@ jobs:
           python3 scripts/publish-release.py --assets "$RUNNER_TEMP/release-assets" \
             --tag "$CODEX_BUNDLE_TAG" --output-path "$CODEX_BUNDLE_OUTPUT_PATH" \
             --revision "$(git rev-parse HEAD)"
+          echo "tag=bundle-$CODEX_BUNDLE_TAG" >>"$GITHUB_OUTPUT"
 
   install-smoke:
     name: Verify fresh release import
@@ -301,9 +377,13 @@ jobs:
       ref: ${{ needs.prepare.outputs.sha }}
 
   native-download-smoke:
-    name: Verify public native download on a bare runner
+    name: Verify public native download on ${{ matrix.runner }}
     needs: [prepare, publish]
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -312,6 +392,7 @@ jobs:
       - name: Look up published release metadata
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.publish.outputs.release_tag }}
         run: |
           python3 - <<'PYTHON'
           import importlib.util, json, os
@@ -320,6 +401,7 @@ jobs:
           client = importlib.util.module_from_spec(spec)
           spec.loader.exec_module(client)
           releases = client.request('/releases?per_page=100', token=os.environ['GITHUB_TOKEN'])
+          releases = [release for release in releases if release['tag_name'] == os.environ['RELEASE_TAG']]
           (Path(os.environ['RUNNER_TEMP']) / 'release-metadata.json').write_text(json.dumps(releases))
           PYTHON
       # No token or runtime libraries: download and execute the public release as-is.

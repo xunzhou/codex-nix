@@ -19,7 +19,7 @@ from urllib.request import urlopen, Request, build_opener, HTTPRedirectHandler
 REPOSITORY = 'xunzhou/codex-nix'
 API = f'https://api.github.com/repos/{REPOSITORY}'
 TAG = re.compile(r'bundle-codex-v(\d+\.\d+\.\d+)-[a-f0-9]{16}-[0-9a-z]{16}')
-NATIVE = re.compile(r'codex-native-(\d+\.\d+\.\d+-[a-f0-9]{64})-linux-x86_64\.tar\.gz')
+NATIVE = re.compile(r'codex-native-(\d+\.\d+\.\d+-[a-f0-9]{64})-linux-(x86_64|aarch64)\.tar\.gz')
 
 class NoMetadataRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -43,7 +43,7 @@ def native_key(release):
     names = {a['name']: a for a in release.get('assets', [])}
     version = TAG.fullmatch(release['tag_name'])[1]
     keys = [(names[name].get('created_at', ''), match[1]) for name in names
-            if (match := NATIVE.fullmatch(name)) and match[1].startswith(version + '-')
+            if (match := NATIVE.fullmatch(name)) and match[2] == platform.machine() and match[1].startswith(version + '-')
             and f'codex-recipe-{match[1]}.tar.gz' in names]
     return max(keys)[1] if keys else None
 
@@ -97,7 +97,7 @@ def prepare(release, cache):
     version = TAG.fullmatch(tag)[1]
     directory = cache / key
     directory.mkdir(parents=True, exist_ok=True)
-    recipe_name, native_name = f'codex-recipe-{key}.tar.gz', f'codex-native-{key}-linux-x86_64.tar.gz'
+    recipe_name, native_name = f'codex-recipe-{key}.tar.gz', f'codex-native-{key}-linux-{platform.machine()}.tar.gz'
     for name in [recipe_name, native_name]:
         download(release, name, directory / name)
     with tarfile.open(directory / recipe_name) as archive:
@@ -126,8 +126,8 @@ def main():
     parser.add_argument('--reviewed-version', action='store_true')
     parser.add_argument('--install-reviewed', '--restore-reviewed', action='store_true')
     args = parser.parse_args()
-    if platform.system() != 'Linux' or platform.machine() != 'x86_64':
-        raise ValueError('published native releases support Linux x86_64')
+    if platform.system() != 'Linux' or platform.machine() not in {'x86_64', 'aarch64'}:
+        raise ValueError('published native releases support Linux x86_64 and aarch64')
     version = None
     if not (args.reviewed_version or args.install_reviewed):
         entry = Path(os.environ.get('CODEX_MANAGED_ENTRYPOINT', '/usr/local/bin/codex'))
@@ -142,7 +142,7 @@ def main():
         if version is not None and selection.is_file():
             saved = json.loads(selection.read_text())
             match = TAG.fullmatch(saved.get('tag_name', ''))
-            if match and match[1] == version:
+            if match and match[1] == version and native_key(saved):
                 release = saved
         if release is None:
             releases = []

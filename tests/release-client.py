@@ -19,14 +19,26 @@ spec = importlib.util.spec_from_file_location('client', ROOT / 'scripts/install-
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 
-def release(version, published='2026-09-24', key=None, **kwargs):
+def release(version, published='2026-09-24', key=None, machine='x86_64', **kwargs):
     key = key or version + '-' + 'a'*64
-    assets = [dict(name=f'codex-native-{key}-linux-x86_64.tar.gz', created_at=published),
+    assets = [dict(name=f'codex-native-{key}-linux-{machine}.tar.gz', created_at=published),
               dict(name=f'codex-recipe-{key}.tar.gz', created_at=published)]
     return dict(tag_name='bundle-codex-v' + version + '-' + 'b'*16 + '-' + 'c'*16, published_at=published,
                 draft=False, prerelease=False, assets=assets, **kwargs)
 
 class ClientTests(unittest.TestCase):
+    def setUp(self):
+        self.enterContext(patch.object(m.platform, 'machine', return_value='x86_64'))
+
+    def test_arm64_selects_its_pair_on_a_combined_release(self):
+        x86 = release('0.11.0')
+        combined = release('0.10.0')
+        arm_key = '0.10.0-' + 'f' * 64
+        combined['assets'] += release('0.10.0', key=arm_key, machine='aarch64')['assets']
+        with patch.object(m.platform, 'machine', return_value='aarch64'):
+            self.assertIs(m.select([x86, combined]), combined)
+            self.assertEqual(m.native_key(combined), arm_key)
+
     def test_metadata_authentication_is_explicit_and_scoped(self):
         with patch.object(m, 'urlopen', return_value=io.BytesIO(b'[]')) as anonymous, \
              patch.dict(os.environ, GITHUB_TOKEN='fixture-metadata-token'):

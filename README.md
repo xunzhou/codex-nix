@@ -17,7 +17,7 @@ nix run github:xunzhou/codex-nix#install
 nix profile install github:xunzhou/codex-nix
 ```
 
-For a manual download, get the `codex-native-…-linux-x86_64.tar.gz` archive from
+For a manual download, get the `codex-native-…-linux-x86_64.tar.gz` or `codex-native-…-linux-aarch64.tar.gz` archive from
 [Releases](https://github.com/xunzhou/codex-nix/releases).
 
 ## Patches

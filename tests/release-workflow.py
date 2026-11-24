@@ -84,7 +84,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertNotIn('git bundle create', prepare)
         self.assertIn("if: steps.candidate.outputs.changed == 'true'", prepare)
         self.assertIn('bundle --base \"$base_sha\"', prepare)
-        for name in ('nix', 'publish'):
+        for name in ('nix', 'native-arm64', 'publish'):
             self.assertIn("if: needs.prepare.outputs.changed == 'true'", JOBS[name])
             self.assertIn('restore-bundle', JOBS[name])
             self.assertIn('--sha256 \"$BUNDLE_SHA256\"', JOBS[name])
@@ -98,8 +98,11 @@ class ReleaseWorkflowTests(unittest.TestCase):
     def test_one_compilation_exports_both_formats(self):
         self.assertNotIn('native', JOBS)
         self.assertEqual(len(re.findall(r'nix .* build .*\.#codex\b', WORKFLOW + BUILD_ACTION)), 1)
-        self.assertNotIn('--build-only', WORKFLOW + BUILD_ACTION)
-        self.assertNotIn('setup-musl-toolchain.sh', WORKFLOW + BUILD_ACTION)
+        self.assertNotIn('--build-only', JOBS['nix'] + BUILD_ACTION)
+        self.assertIn('--build-only', JOBS['native-arm64'])
+        self.assertIn('setup-musl-toolchain.sh aarch64-unknown-linux-musl', JOBS['native-arm64'])
+        self.assertIn('runs-on: ubuntu-24.04-arm', JOBS['native-arm64'])
+        self.assertEqual(artifact_names(JOBS['native-arm64'], 'upload'), {'release-native-arm64'})
         build = BUILD_ACTION
         self.assertIn('scripts/export-native.py --package result', build)
         self.assertIn('scripts/publish-bundle.sh --prepare-dir', build)
@@ -108,10 +111,10 @@ class ReleaseWorkflowTests(unittest.TestCase):
 
     def test_publication_still_requires_complete_asset_pair(self):
         publish = JOBS['publish']
-        self.assertRegex(publish, r'needs: \[prepare, nix\]')
+        self.assertRegex(publish, r'needs: \[prepare, nix, native-arm64\]')
         self.assertIn("if: github.ref == 'refs/heads/main'", publish)
         self.assertEqual(artifact_names(publish, 'download'),
-                         {'release-source', 'release-nix', 'release-native'})
+                         {'release-source', 'release-nix', 'release-native', 'release-native-arm64'})
         self.assertIn('scripts/publish-release.py --assets', publish)
         self.assertIn('--tag "$CODEX_BUNDLE_TAG"', publish)
         self.assertIn('--output-path "$CODEX_BUNDLE_OUTPUT_PATH"', publish)

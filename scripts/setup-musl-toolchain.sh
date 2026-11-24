@@ -11,13 +11,14 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 manifest="${CODEX_BUILD_MANIFEST:-$repo_root/build.json}"
 
-read -r target url sha256 < <(python3 - "$manifest" <<'PY'
+read -r default_target url sha256 < <(python3 - "$manifest" <<'PY'
 import json, sys
 data = json.load(open(sys.argv[1]))
 release = data['releases'][data['default_version']]
 print(data['build']['release_target'], release['source']['url'], release['source']['sha256'])
 PY
 )
+target=${1:-$default_target}
 [[ "$target" == *-unknown-linux-musl ]] || { echo "release target $target is not musl" >&2; exit 1; }
 
 work=$(mktemp -d "${RUNNER_TEMP:-/tmp}/codex-musl-setup.XXXXXX")
