@@ -15,13 +15,18 @@ on:
       - .github/actions/cargo-dependency-cache/**
       - .github/workflows/update.yml
   schedule:
-    - cron: '17 8 * * *'
+    - cron: '7,22,37,52 * * * *'
   workflow_dispatch:
     inputs:
       version:
         description: Codex version without rust-v; blank selects latest stable
         required: false
         type: string
+      retry:
+        description: Retry a previously attempted, still unpublished stable version
+        required: false
+        default: false
+        type: boolean
       request_id:
         description: Anonymous caller correlation ID
         required: true
@@ -37,7 +42,59 @@ permissions:
   contents: read
 
 jobs:
+  probe:
+    if: github.repository == 'xunzhou/codex-nix' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    outputs:
+      base: ${{ steps.probe.outputs.base }}
+      build: ${{ steps.probe.outputs.build }}
+      version: ${{ steps.probe.outputs.version }}
+    steps:
+      - name: Check out public main without write credentials
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git init
+          git remote add origin https://github.com/xunzhou/codex-nix.git
+          git fetch --no-tags origin main
+          if [[ "$EVENT_NAME" == push ]]; then
+            git checkout --detach "$PUSH_SHA"
+          else
+            git checkout --detach FETCH_HEAD
+          fi
+      - name: Install the unchanged publication hook
+        env:
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: python3 scripts/publication_gate.py install
+      - name: Check for an unpublished, unattempted stable release
+        id: probe
+        env:
+          GH_TOKEN: ${{ github.event_name != 'push' && github.token || '' }}
+          EVENT_NAME: ${{ github.event_name }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+          RETRY: ${{ inputs.retry }}
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: |
+          set -euo pipefail
+          args=(--event "$EVENT_NAME" --version "$REQUESTED_VERSION" --claim --output "$GITHUB_OUTPUT")
+          if [[ "$RETRY" == true ]]; then args+=(--retry); fi
+          python3 scripts/probe-update.py "${args[@]}"
+
   prepare:
+    needs: probe
+    if: needs.probe.outputs.build == 'true'
     runs-on: ubuntu-24.04
     outputs:
       base: ${{ steps.candidate.outputs.base }}
@@ -48,8 +105,15 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event_name == 'push' && github.sha || 'main' }}
+          ref: ${{ needs.probe.outputs.base }}
           fetch-depth: 0
+      - name: Verify the non-push base is still current
+        if: github.event_name != 'push'
+        env:
+          EXPECTED_BASE: ${{ needs.probe.outputs.base }}
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$EXPECTED_BASE"
       - name: Install Nix
         uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
@@ -65,7 +129,7 @@ jobs:
         id: candidate
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          REQUESTED_VERSION: ${{ inputs.version }}
+          REQUESTED_VERSION: ${{ needs.probe.outputs.version }}
           EVENT_NAME: ${{ github.event_name }}
           CODEX_UPDATE_PREPARE_ONLY: '1'
           CODEX_FAILURE_DIR: ${{ runner.temp }}/update-failure

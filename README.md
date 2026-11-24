@@ -134,3 +134,24 @@ previous_permission_mode = "alt-shift-p"
 ```
 
 </details>
+
+## Update checks
+
+Update Codex probes stable releases every 15 minutes; published versions skip all
+builds. The serialized queue preserves packaging pushes: while a build runs,
+probes wait, then skip published or exhausted work before installing build tools.
+Each stable version/main revision gets at most two automatic attempts, with a
+30-minute cooldown after a completed failed/cancelled attempt. A repaired main
+gets a fresh budget. Active runs are never displaced. Missing run records or
+unknown status fail closed; inspect Actions before intervening.
+
+For further recovery, run **Update Codex** on main with an explicit stable
+`version`, anonymous `request_id`, and `retry` selected. Retry still cannot bypass
+an active attempt or rebuild an already published version. Immutable attempt tags
+record the owning Actions run; do not move or delete them. An authorized event
+sender may use this same dispatch entry point; no sender is installed here.
+
+**Alpha compatibility** checks recent published alphas every six hours (or a
+selected tag manually). It replays patches in temporary directories and runs the
+checksum-verified upstream host's isolated V8 smoke. It cannot publish, and does
+not replace patched compilation or the stable release checks.

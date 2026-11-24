@@ -20,6 +20,26 @@ def artifact_names(job, action):
 
 
 class ReleaseWorkflowTests(unittest.TestCase):
+    def test_probe_gates_every_expensive_release_path(self):
+        self.assertIn("cron: '7,22,37,52 * * * *'", WORKFLOW)
+        self.assertIn('needs: probe', JOBS['prepare'])
+        self.assertIn("if: needs.probe.outputs.build == 'true'", JOBS['prepare'])
+        self.assertIn('REQUESTED_VERSION: ${{ needs.probe.outputs.version }}', JOBS['prepare'])
+        self.assertIn('needs: prepare', JOBS['route'])
+        self.assertIn('needs: prepare', JOBS['native-arm64'])
+        self.assertIn('needs: [prepare, route]', JOBS['nix'])
+        self.assertNotIn('Install Nix', JOBS['probe'])
+        self.assertIn('scripts/publication_gate.py install', JOBS['probe'])
+        self.assertIn('scripts/probe-update.py', JOBS['probe'])
+        self.assertIn('--claim', JOBS['probe'])
+        self.assertIn('queue: max', WORKFLOW)
+        self.assertIn("github.repository == 'xunzhou/codex-nix' && github.ref == 'refs/heads/main'", JOBS['probe'])
+        self.assertNotIn('actions/checkout@', JOBS['probe'])
+        self.assertEqual(JOBS['probe'].count('GH_TOKEN:'), 1)
+        self.assertNotIn('GH_TOKEN', JOBS['probe'].split('name: Check for')[0])
+        self.assertIn('ref: ${{ needs.probe.outputs.base }}', JOBS['prepare'])
+        self.assertLess(JOBS['prepare'].index('Verify the non-push base is still current'), JOBS['prepare'].index('Install Nix'))
+
     def test_compiled_dependency_caches_precede_every_full_build(self):
         update = BUILD_ACTION
         self.assertIn('uses: ./.github/actions/build-release', JOBS['nix'])

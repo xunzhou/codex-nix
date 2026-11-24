@@ -15,6 +15,8 @@ runs:
         python3 tests/release.py
         python3 tests/export-native.py
         python3 tests/release-workflow.py
+        python3 tests/update-probe.py
+        python3 tests/alpha-check.py
         python3 tests/route-release.py
         python3 tests/rebase-patches.py
         python3 tests/release-client.py
