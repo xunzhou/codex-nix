@@ -1,1 +1,79 @@
-bmFtZTogQVJNNjQgTGludXggZGlzayB0cmlhbApvbjoKICBwdXNoOgogICAgYnJhbmNoZXM6IFt0cmlhbC9hcm02NC1saW51eC1kaXNrXQogICAgcGF0aHM6IFsuZ2l0aHViL3dvcmtmbG93cy9hcm02NC1kaXNrLXRyaWFsLnltbF0KcGVybWlzc2lvbnM6CiAgY29udGVudHM6IHJlYWQKam9iczoKICBidWlsZDoKICAgIHJ1bnMtb246IHVidW50dS0yNC4wNC1hcm0KICAgIHRpbWVvdXQtbWludXRlczogMTgwCiAgICBlbnY6CiAgICAgIENBUkdPX0JVSUxEX0pPQlM6ICcyJwogICAgICBDQVJHT19JTkNSRU1FTlRBTDogJzAnCiAgICBzdGVwczoKICAgICAgLSB1c2VzOiBhY3Rpb25zL2NoZWNrb3V0QDNkM2M0MmU1YWFjNWJhODA1ODI1ZGE3NjQxMGMxODEyNzNiYTkwYjEKICAgICAgLSBuYW1lOiBNZWFzdXJlIGFuZCByZWNsYWltIGRpc2sKICAgICAgICBydW46IHwKICAgICAgICAgIHVuYW1lIC1tCiAgICAgICAgICBzdWRvIGVudiBHSVRIVUJfQUNUSU9OUz0iJEdJVEhVQl9BQ1RJT05TIiBSVU5ORVJfRU5WSVJPTk1FTlQ9IiRSVU5ORVJfRU5WSVJPTk1FTlQiIGJhc2ggc2NyaXB0cy9yZWNsYWltLXJ1bm5lci1kaXNrLnNoCiAgICAgIC0gbmFtZTogQ29uZmlndXJlIEFSTTY0IG11c2wgdG9vbGNoYWluCiAgICAgICAgcnVuOiB8CiAgICAgICAgICBweXRob24zIC1tIHZlbnYgIiRSVU5ORVJfVEVNUC96aWciCiAgICAgICAgICAiJFJVTk5FUl9URU1QL3ppZy9iaW4vcGlwIiBpbnN0YWxsIC0tbm8tY2FjaGUtZGlyIHppZ2xhbmc9PTAuMTUuMgogICAgICAgICAgbWtkaXIgLXAgIiRSVU5ORVJfVEVNUC9iaW4iCiAgICAgICAgICBwcmludGYgJyMhL2Jpbi9zaFxuZXhlYyAiJXMiIC1tIHppZ2xhbmcgIiRAIlxuJyAiJFJVTk5FUl9URU1QL3ppZy9iaW4vcHl0aG9uIiA+ICIkUlVOTkVSX1RFTVAvYmluL3ppZyIKICAgICAgICAgIGNobW9kICt4ICIkUlVOTkVSX1RFTVAvYmluL3ppZyIKICAgICAgICAgIGV4cG9ydCBQQVRIPSIkUlVOTkVSX1RFTVAvYmluOiRQQVRIIgogICAgICAgICAgZXhwb3J0IENPREVYX0JVSUxEX01BTklGRVNUPSIkUlVOTkVSX1RFTVAvYXJtNjQtYnVpbGQuanNvbiIKICAgICAgICAgIGpxICcKICAgICAgICAgICAgLmJ1aWxkLnJlbGVhc2VfdGFyZ2V0ID0gImFhcmNoNjQtdW5rbm93bi1saW51eC1tdXNsIgogICAgICAgICAgICB8IC5wcm9maWxlc1sidjgtMTUyLjIuMCJdLmJ1aWxkX2Fzc2V0c1siYWFyY2g2NC11bmtub3duLWxpbnV4LW11c2wiXSA9IHsKICAgICAgICAgICAgICAgIFJVU1RZX1Y4X0FSQ0hJVkU6IHsKICAgICAgICAgICAgICAgICAgdXJsOiAiaHR0cHM6Ly9naXRodWIuY29tL29wZW5haS9jb2RleC9yZWxlYXNlcy9kb3dubG9hZC9ydXN0eS12OC12MTUyLjIuMC9saWJydXN0eV92OF9wdHJjb21wX3NhbmRib3hfcmVsZWFzZV9hYXJjaDY0LXVua25vd24tbGludXgtbXVzbC5hLmd6IiwKICAgICAgICAgICAgICAgICAgc2hhMjU2OiAiMWE2MGYzNmEzZGQ4Nzc4ODAyZTY5ODA2NjhjNGQ2NWEzYzczMDVkODVhNWQyZGViZjQ2NmQ5YWEwZGFhZGQ3NSIKICAgICAgICAgICAgICAgIH0sCiAgICAgICAgICAgICAgICBSVVNUWV9WOF9TUkNfQklORElOR19QQVRIOiB7CiAgICAgICAgICAgICAgICAgIHVybDogImh0dHBzOi8vZ2l0aHViLmNvbS9vcGVuYWkvY29kZXgvcmVsZWFzZXMvZG93bmxvYWQvcnVzdHktdjgtdjE1Mi4yLjAvc3JjX2JpbmRpbmdfcHRyY29tcF9zYW5kYm94X3JlbGVhc2VfYWFyY2g2NC11bmtub3duLWxpbnV4LW11c2wucnMiLAogICAgICAgICAgICAgICAgICBzaGEyNTY6ICIzZTRkNWZlY2RiZTBmOThhNjAxN2U2OWQ3Y2E4MjUxOWE3N2ZiMDMyYzVlYjVlNGNkYmVjZGQzZTJlYzUxOWQ1IgogICAgICAgICAgICAgICAgfQogICAgICAgICAgICAgIH0KICAgICAgICAgICcgYnVpbGQuanNvbiA+ICIkQ09ERVhfQlVJTERfTUFOSUZFU1QiCiAgICAgICAgICBlY2hvICJDT0RFWF9CVUlMRF9NQU5JRkVTVD0kQ09ERVhfQlVJTERfTUFOSUZFU1QiID4+ICIkR0lUSFVCX0VOViIKICAgICAgICAgIGJhc2ggc2NyaXB0cy9zZXR1cC1tdXNsLXRvb2xjaGFpbi5zaAogICAgICAgICAgZGYgLWggIiRSVU5ORVJfVEVNUCIgIiRIT01FIgogICAgICAtIG5hbWU6IEJ1aWxkIGFuZCBtZWFzdXJlIGRpc2sgdXNlCiAgICAgICAgcnVuOiB8CiAgICAgICAgICBleHBvcnQgQ09ERVhfUEFUQ0hfQ0FDSEU9IiRSVU5ORVJfVEVNUC9jb2RleC1wYXRjaGVkIgogICAgICAgICAgbG9nPSIkUlVOTkVSX1RFTVAvZGlzay1raWIudHN2IgogICAgICAgICAgc2FtcGxlKCkgewogICAgICAgICAgICBwcmludGYgJyVzXHQlc1xuJyAiJChkYXRlIC11ICslRlQlVFopIiAiJChkZiAtayAtLW91dHB1dD1hdmFpbCAiJFJVTk5FUl9URU1QIiB8IHRhaWwgLTEgfCB0ciAtZCAnICcpIgogICAgICAgICAgfQogICAgICAgICAgc2FtcGxlID4gIiRsb2ciCiAgICAgICAgICAod2hpbGUgc2xlZXAgMTA7IGRvIHNhbXBsZTsgZG9uZSkgPj4gIiRsb2ciICYKICAgICAgICAgIG1vbml0b3I9JCEKICAgICAgICAgIGZpbmlzaCgpIHsKICAgICAgICAgICAga2lsbCAiJG1vbml0b3IiIDI+L2Rldi9udWxsIHx8IHRydWUKICAgICAgICAgICAgd2FpdCAiJG1vbml0b3IiIDI+L2Rldi9udWxsIHx8IHRydWUKICAgICAgICAgICAgc2FtcGxlID4+ICIkbG9nIgogICAgICAgICAgICBhd2sgJ05SPT0xIHtzdGFydD1taW49JDJ9ICQyPG1pbiB7bWluPSQyfSBFTkQge3ByaW50ZiAiU3RhcnRpbmcgZnJlZSBzcGFjZTogJS4yZiBHaUJcbk1pbmltdW0gc2FtcGxlZCBmcmVlIHNwYWNlOiAlLjJmIEdpQlxuUGVhayBzYW1wbGVkIGdyb3d0aDogJS4yZiBHaUJcbiIsIHN0YXJ0LzEwNDg1NzYsIG1pbi8xMDQ4NTc2LCAoc3RhcnQtbWluKS8xMDQ4NTc2fScgIiRsb2ciIHwgdGVlIC1hICIkR0lUSFVCX1NURVBfU1VNTUFSWSIKICAgICAgICAgICAgZGYgLWggIiRSVU5ORVJfVEVNUCIgIiRIT01FIgogICAgICAgICAgfQogICAgICAgICAgdHJhcCBmaW5pc2ggRVhJVAogICAgICAgICAgcHl0aG9uMyBzY3JpcHRzL2luc3RhbGwtc291cmNlLWNvZGV4LnB5IC0tYnVpbGQtb25seSAtLW91dHB1dCAiJFJVTk5FUl9URU1QL2NvZGV4LWxpbnV4LWFybTY0LnRhci5neiIKICAgICAgICAgIG1rZGlyICIkUlVOTkVSX1RFTVAvdmVyaWZ5IgogICAgICAgICAgdGFyIC14emYgIiRSVU5ORVJfVEVNUC9jb2RleC1saW51eC1hcm02NC50YXIuZ3oiIC1DICIkUlVOTkVSX1RFTVAvdmVyaWZ5IgogICAgICAgICAgZm9yIG5hbWUgaW4gY29kZXggY29kZXgtY29kZS1tb2RlLWhvc3Q7IGRvCiAgICAgICAgICAgIGZpbGU9IiRSVU5ORVJfVEVNUC92ZXJpZnkvJG5hbWUiCiAgICAgICAgICAgIHJlYWRlbGYgLWhXICIkZmlsZSIgfCBncmVwICdNYWNoaW5lOi4qQUFyY2g2NCcKICAgICAgICAgICAgaWYgcmVhZGVsZiAtbFcgIiRmaWxlIiB8IGdyZXAgLXcgSU5URVJQIHx8IHJlYWRlbGYgLWRXICIkZmlsZSIgfCBncmVwICcoTkVFREVEKSc7IHRoZW4KICAgICAgICAgICAgICBlY2hvICJEeW5hbWljYWxseSBsaW5rZWQgYmluYXJ5OiAkbmFtZSIgPiYyCiAgICAgICAgICAgICAgZXhpdCAxCiAgICAgICAgICAgIGZpCiAgICAgICAgICBkb25lCiAgICAgIC0gdXNlczogYWN0aW9ucy91cGxvYWQtYXJ0aWZhY3RAYmJiY2EyZGRhYTVkOGZlYWE2M2UzNmI3NmZkYWFkNzczODZmMDI0ZgogICAgICAgIHdpdGg6CiAgICAgICAgICBuYW1lOiBjb2RleC1saW51eC1hcm02NAogICAgICAgICAgcGF0aDogJHt7IHJ1bm5lci50ZW1wIH19L2NvZGV4LWxpbnV4LWFybTY0LnRhci5negogICAgICAgICAgaWYtbm8tZmlsZXMtZm91bmQ6IGVycm9yCg==
+name: ARM64 Linux disk trial
+on:
+  push:
+    branches: [trial/arm64-linux-disk]
+    paths: [.github/workflows/arm64-disk-trial.yml]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Measure and reclaim disk
+        run: |
+          uname -m
+          sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" bash scripts/reclaim-runner-disk.sh
+      - name: Configure ARM64 musl toolchain
+        run: |
+          python3 -m venv "$RUNNER_TEMP/zig"
+          "$RUNNER_TEMP/zig/bin/pip" install --no-cache-dir ziglang==0.15.2
+          mkdir -p "$RUNNER_TEMP/bin"
+          printf '#!/bin/sh\nexec "%s" -m ziglang "$@"\n' "$RUNNER_TEMP/zig/bin/python" > "$RUNNER_TEMP/bin/zig"
+          chmod +x "$RUNNER_TEMP/bin/zig"
+          export PATH="$RUNNER_TEMP/bin:$PATH"
+          export CODEX_BUILD_MANIFEST="$RUNNER_TEMP/arm64-build.json"
+          jq '
+            .build.release_target = "aarch64-unknown-linux-musl"
+            | .profiles["v8-152.2.0"].build_assets["aarch64-unknown-linux-musl"] = {
+                RUSTY_V8_ARCHIVE: {
+                  url: "https://github.com/openai/codex/releases/download/rusty-v8-v152.2.0/librusty_v8_ptrcomp_sandbox_release_aarch64-unknown-linux-musl.a.gz",
+                  sha256: "1a60f36a3dd8778802e6980668c4d65a3c7305d85a5d2debf466d9aa0daadd75"
+                },
+                RUSTY_V8_SRC_BINDING_PATH: {
+                  url: "https://github.com/openai/codex/releases/download/rusty-v8-v152.2.0/src_binding_ptrcomp_sandbox_release_aarch64-unknown-linux-musl.rs",
+                  sha256: "3e4d5fecdbe0f98a6017e69d7ca82519a77fb032c5eb5e4cdbecdd3e2ec519d5"
+                }
+              }
+          ' build.json > "$CODEX_BUILD_MANIFEST"
+          echo "CODEX_BUILD_MANIFEST=$CODEX_BUILD_MANIFEST" >> "$GITHUB_ENV"
+          bash scripts/setup-musl-toolchain.sh
+          df -h "$RUNNER_TEMP" "$HOME"
+      - name: Build and measure disk use
+        run: |
+          export CODEX_PATCH_CACHE="$RUNNER_TEMP/codex-patched"
+          log="$RUNNER_TEMP/disk-kib.tsv"
+          sample() {
+            printf '%s\t%s\n' "$(date -u +%FT%TZ)" "$(df -k --output=avail "$RUNNER_TEMP" | tail -1 | tr -d ' ')"
+          }
+          sample > "$log"
+          (while sleep 10; do sample; done) >> "$log" &
+          monitor=$!
+          finish() {
+            kill "$monitor" 2>/dev/null || true
+            wait "$monitor" 2>/dev/null || true
+            sample >> "$log"
+            awk 'NR==1 {start=min=$2} $2<min {min=$2} END {printf "Starting free space: %.2f GiB\nMinimum sampled free space: %.2f GiB\nPeak sampled growth: %.2f GiB\n", start/1048576, min/1048576, (start-min)/1048576}' "$log" | tee -a "$GITHUB_STEP_SUMMARY"
+            df -h "$RUNNER_TEMP" "$HOME"
+          }
+          trap finish EXIT
+          python3 scripts/install-source-codex.py --build-only --output "$RUNNER_TEMP/codex-linux-arm64.tar.gz"
+          mkdir "$RUNNER_TEMP/verify"
+          tar -xzf "$RUNNER_TEMP/codex-linux-arm64.tar.gz" -C "$RUNNER_TEMP/verify"
+          for name in codex codex-code-mode-host; do
+            file="$RUNNER_TEMP/verify/$name"
+            readelf -hW "$file" | grep 'Machine:.*AArch64'
+            if readelf -lW "$file" | grep -w INTERP || readelf -dW "$file" | grep '(NEEDED)'; then
+              echo "Dynamically linked binary: $name" >&2
+              exit 1
+            fi
+          done
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        with:
+          name: codex-linux-arm64
+          path: ${{ runner.temp }}/codex-linux-arm64.tar.gz
+          if-no-files-found: error
