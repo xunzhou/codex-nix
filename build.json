@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "default_version": "0.171.0",
+  "default_version": "0.172.0",
   "release_repository": "xunzhou/codex-nix",
   "build": {
     "binaries": {
@@ -81,23 +81,23 @@
     }
   },
   "releases": {
-    "0.171.0": {
+    "0.172.0": {
       "profile": "v8-152.2.0",
       "source": {
-        "url": "https://github.com/openai/codex/archive/refs/tags/rust-v0.171.0.tar.gz",
-        "sha256": "fd77744299602d6663fe2ace84fc338b33a23a3b125a691757c31ea8c58e5217",
-        "nar_hash": "sha256-Q0fxlAU4oJZOHJtsVVaJJ28XuupzpCYGO4IKn9TAwl0="
+        "url": "https://github.com/openai/codex/archive/refs/tags/rust-v0.172.0.tar.gz",
+        "sha256": "8a4a4bd174f87394ed7a63c8fe1bf8207d9d691468e465fe56e418018ecc5549",
+        "nar_hash": "sha256-MDLBCNRb/1DNPZWegnF2yFDQU4IdSsgQcYOh0JV3EN8="
       },
       "patches": [
-        "0.171.0/live-palette-refresh.patch",
-        "0.171.0/double-esc-interrupt.patch",
-        "0.171.0/external-editor-reference.patch",
-        "0.171.0/runtime-add-dir.patch",
-        "0.171.0/toggle-turn-details.patch",
-        "0.171.0/model-cycle.patch",
-        "0.171.0/permission-cycle.patch"
+        "0.172.0/live-palette-refresh.patch",
+        "0.172.0/double-esc-interrupt.patch",
+        "0.172.0/external-editor-reference.patch",
+        "0.172.0/runtime-add-dir.patch",
+        "0.172.0/toggle-turn-details.patch",
+        "0.172.0/model-cycle.patch",
+        "0.172.0/permission-cycle.patch"
       ],
-      "cargo_hash": "sha256-57GGsc4vgmQnnOXOPf2QaqrW8+02cpc/zotb8Y+rRio="
+      "cargo_hash": "sha256-baArx7G/DmmT+1k4ykHoBnVU73ta0F+Hai4hWBkHV/Q="
     }
   }
 }

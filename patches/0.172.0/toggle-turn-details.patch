@@ -1,0 +1,74 @@
+diff --git a/codex-rs/tui/src/app/owned_transcript.rs b/codex-rs/tui/src/app/owned_transcript.rs
+index 0a7efd36335f9b9b185a272b3c51c26a4b5c59fc..9501bc86946192274c4edbd092a262bdee22b66d 100644
+--- a/codex-rs/tui/src/app/owned_transcript.rs
++++ b/codex-rs/tui/src/app/owned_transcript.rs
+@@ -1444,6 +1444,20 @@ impl App {
+             | TuiEvent::FocusLost => None,
+         };
+         let Some(action) = action else {
++            // Browsing must exit and retry chord matching in the composer context first.
++            if let TuiEvent::Key(key) = event
++                && key.code == KeyCode::F(6)
++                && key.modifiers == KeyModifiers::NONE
++                && key.kind == KeyEventKind::Press
++                && self.chat_widget.no_modal_or_popup_active()
++                && !self.backtrack.overlay_preview_active
++            {
++                let collapse = &mut self.local_settings.tui.collapse_turn_details;
++                *collapse = !*collapse;
++                self.chat_widget.flash_turn_details(*collapse);
++                tui.frame_requester().schedule_frame();
++                return Ok(true);
++            }
+             if empty_enter_returns_to_latest {
+                 self.transcript_view.jump_to_latest();
+                 tui.frame_requester().schedule_frame();
+diff --git a/codex-rs/tui/src/app/owned_transcript_browsing_tests.rs b/codex-rs/tui/src/app/owned_transcript_browsing_tests.rs
+index 925a896883d840d47862d4b325d53951b885dacc..2ae864b96b32b37c0859009babbb6d96ce7d2b41 100644
+--- a/codex-rs/tui/src/app/owned_transcript_browsing_tests.rs
++++ b/codex-rs/tui/src/app/owned_transcript_browsing_tests.rs
+@@ -439,6 +439,12 @@ async fn browsing_requires_fresh_escape_presses_and_ignores_confirmation_repeats
+     let mut server = Box::pin(crate::start_embedded_app_server_for_picker(&app.config)).await?;
+     let mut tui = crate::tui::test_support::make_test_tui()?;
+     tui.set_owned_screen(/*owned*/ true)?;
++    let initial_collapse = app.local_settings.tui.collapse_turn_details;
++    for expected in [!initial_collapse, initial_collapse] {
++        app.handle_tui_event(&mut tui, &mut server, TuiEvent::Key(KeyCode::F(6).into()))
++            .await?;
++        assert_eq!(app.local_settings.tui.collapse_turn_details, expected);
++    }
+     app.transcript_view
+         .set_presentation(/*detailed*/ true, HistoryRenderMode::Rich);
+     app.chat_widget.apply_external_edit("draft".to_string());
+@@ -539,6 +545,10 @@ async fn browsing_requires_fresh_escape_presses_and_ignores_confirmation_repeats
+     app.handle_tui_event(&mut tui, &mut server, TuiEvent::Key(KeyCode::F(6).into()))
+         .await?;
+     assert!(!app.backtrack.overlay_preview_active);
++    assert_eq!(
++        app.local_settings.tui.collapse_turn_details,
++        initial_collapse
++    );
+     assert!(app.key_chord_matcher.is_pending());
+     app.handle_tui_event(&mut tui, &mut server, TuiEvent::Key(KeyCode::F(7).into()))
+         .await?;
+diff --git a/codex-rs/tui/src/chatwidget/interaction.rs b/codex-rs/tui/src/chatwidget/interaction.rs
+index 3e2ca1d802be1fde2a9598d78051f3854a5a15e3..c16f2ffa1b106bdcebac82261d21049b8c5d6885 100644
+--- a/codex-rs/tui/src/chatwidget/interaction.rs
++++ b/codex-rs/tui/src/chatwidget/interaction.rs
+@@ -19,6 +19,16 @@ pub(crate) enum KeyEventAction {
+ }
+ 
+ impl ChatWidget {
++    pub(crate) fn flash_turn_details(&mut self, collapsed: bool) {
++        let message = if collapsed {
++            "Turn details collapsed"
++        } else {
++            "Turn details expanded"
++        };
++        self.bottom_pane
++            .show_footer_flash(message.into(), Duration::from_secs(2));
++    }
++
+     pub(crate) fn current_patch_approval(&self) -> Option<(ThreadId, &str)> {
+         let patch = self.bottom_pane.current_patch_approval()?;
+         Some((patch.thread_id, &patch.id))
