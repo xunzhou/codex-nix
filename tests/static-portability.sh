@@ -24,5 +24,18 @@ isolated=(bwrap --unshare-all --die-with-parent --clearenv
   --setenv HOME /tmp --setenv PATH /app --chdir /tmp)
 "${isolated[@]}" /app/codex --version
 "${isolated[@]}" /app/codex-code-mode-host --help >/dev/null
-python3 "$repo_root/tests/static-runtime.py" "${isolated[@]}" /app/codex-code-mode-host --listen stdio
+# HTTP/2 support belongs to the client outside the sandbox, never the tarball.
+# Resolve it from this checkout's locked nixpkgs on PR and external release workers.
+# sudo may omit the multi-user Nix profile from PATH.
+nix_command=$(command -v nix || true)
+nix_command=${nix_command:-/nix/var/nix/profiles/default/bin/nix}
+smoke_python=$("$nix_command" --extra-experimental-features 'nix-command flakes' \
+  build --impure --no-link --print-out-paths --expr '
+  { repo }: let
+    flake = builtins.getFlake repo;
+    pkgs = import flake.inputs.nixpkgs { system = builtins.currentSystem; };
+  in pkgs.python3.withPackages (ps: [ ps.h2 ])
+' --argstr repo "$repo_root")
+"$smoke_python/bin/python3" "$repo_root/tests/static-runtime-test.py"
+"$smoke_python/bin/python3" "$repo_root/tests/static-runtime.py" "${isolated[@]}" /app/codex-code-mode-host --listen grpc+stdio://
 printf 'Exported binary pair passed without /nix/store or shared libraries.\n'
