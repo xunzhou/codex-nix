@@ -160,7 +160,9 @@ def probe(event, version='', retry=False, claim=False):
         if not retry:
             if len(entries) >= 2:
                 return decision(False, 'automatic-attempts-exhausted')
-            if run.get('conclusion') not in ('failure', 'cancelled', 'timed_out', 'startup_failure', 'success'):
+            if run.get('conclusion') == 'cancelled':
+                return decision(False, 'cancelled-requires-retry')
+            if run.get('conclusion') not in ('failure', 'timed_out', 'startup_failure'):
                 return decision(False, 'attempt-needs-review')
             updated = datetime.fromisoformat(run['updated_at'].replace('Z', '+00:00'))
             if (datetime.now(timezone.utc) - updated).total_seconds() < 1800:

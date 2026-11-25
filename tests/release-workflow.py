@@ -21,7 +21,7 @@ def artifact_names(job, action):
 
 class ReleaseWorkflowTests(unittest.TestCase):
     def test_probe_gates_every_expensive_release_path(self):
-        self.assertIn("cron: '7,22,37,52 * * * *'", WORKFLOW)
+        self.assertIn("cron: '7,37 * * * *'", WORKFLOW)
         self.assertIn('needs: probe', JOBS['prepare'])
         self.assertIn("if: needs.probe.outputs.build == 'true'", JOBS['prepare'])
         self.assertIn('REQUESTED_VERSION: ${{ needs.probe.outputs.version }}', JOBS['prepare'])

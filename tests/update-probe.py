@@ -155,11 +155,25 @@ print(json.dumps(value))
         self.run_probe('--event', 'workflow_dispatch', '--retry', success=False)
         self.run_probe('--event', 'schedule', '--retry', success=False)
 
-    def test_failure_cancellation_and_crash_recover_once_then_require_retry(self):
+    def test_cancelled_run_requires_explicit_retry(self):
         self.run_probe('--event', 'schedule', '--claim')
-        self.run_status('completed', 'cancelled', minutes=5)
-        self.assertEqual(self.run_probe('--event', 'schedule')['reason'], 'recovery-cooldown')
         self.run_status('completed', 'cancelled')
+        self.env['GITHUB_RUN_ID'] = '102'
+        self.assertEqual(self.run_probe('--event', 'schedule', '--claim')['reason'], 'cancelled-requires-retry')
+        self.assertEqual(len(self.git('ls-remote', '--refs', 'origin').splitlines()), 2)
+        retry = self.run_probe('--event', 'workflow_dispatch', '--version', '0.173.0', '--retry', '--claim')
+        self.assertEqual(retry['reason'], 'explicit-retry')
+
+    def test_success_without_a_release_requires_review(self):
+        self.run_probe('--event', 'schedule', '--claim')
+        self.run_status('completed', 'success')
+        self.assertEqual(self.run_probe('--event', 'schedule', '--claim')['reason'], 'attempt-needs-review')
+
+    def test_failure_recovers_once_after_cooldown_then_requires_retry(self):
+        self.run_probe('--event', 'schedule', '--claim')
+        self.run_status('completed', 'failure', minutes=5)
+        self.assertEqual(self.run_probe('--event', 'schedule')['reason'], 'recovery-cooldown')
+        self.run_status('completed', 'failure')
         self.env['GITHUB_RUN_ID'] = '102'
         self.assertEqual(self.run_probe('--event', 'schedule', '--claim')['reason'], 'bounded-recovery')
         self.run_status('completed', 'failure', run=102)

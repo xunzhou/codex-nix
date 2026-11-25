@@ -15,7 +15,7 @@ on:
       - .github/actions/cargo-dependency-cache/**
       - .github/workflows/update.yml
   schedule:
-    - cron: '7,22,37,52 * * * *'
+    - cron: '7,37 * * * *'
   workflow_dispatch:
     inputs:
       version:

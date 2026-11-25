@@ -194,8 +194,8 @@ fi
 grep -Fq 'uses: ./.github/workflows/install-smoke.yml' "$update_workflow"
 grep -Eq '^[[:space:]]+schedule:[[:space:]]*$' "$update_workflow" ||
   fail 'Codex update workflow is not scheduled'
-grep -Fq "cron: '7,22,37,52 * * * *'" "$update_workflow" ||
-  fail 'Codex update workflow does not probe every 15 minutes'
+grep -Fq "cron: '7,37 * * * *'" "$update_workflow" ||
+  fail 'Codex update workflow does not probe every 30 minutes'
 grep -Fq "run-name: Update Codex (\${{ inputs.request_id || 'scheduled' }})" "$update_workflow" ||
   fail 'scheduled Codex updates lack a correlation label'
 
