@@ -26,6 +26,41 @@ class IntegrityError(Exception):
     """Build or artifact verification failed."""
 
 
+class Indeterminate(IntegrityError):
+    """Observation is untrustworthy; do not cancel or start another build."""
+
+
+def build_job(snapshot):
+    if not isinstance(snapshot, dict) or not isinstance(snapshot.get('jobs'), list):
+        raise Indeterminate('Invalid build job snapshot.')
+    jobs = snapshot['jobs']
+    if 'total_count' in snapshot and (type(snapshot['total_count']) is not int
+                                     or snapshot['total_count'] != len(jobs)):
+        raise Indeterminate('Incomplete build job snapshot.')
+    if any(not isinstance(item, dict) or not isinstance(item.get('name'), str)
+           or item.get('status') not in ('queued', 'in_progress', 'completed') for item in jobs):
+        raise Indeterminate('Invalid build job entry.')
+    matches = [item for item in jobs if item['name'] == 'build']
+    if len(matches) > 1:
+        raise IntegrityError('Ambiguous build job identity.')
+    if not matches:
+        return None
+    job = matches[0]
+    if ('runner_id' not in job or job.get('status') not in ('queued', 'in_progress', 'completed')
+            or (job.get('runner_id') is not None and
+                (type(job['runner_id']) is not int or job['runner_id'] < 0))
+            or not isinstance(job.get('steps'), list)
+            or any(not isinstance(step, dict) or not isinstance(step.get('name'), str)
+                   or step.get('conclusion') not in (None, 'success', 'failure', 'cancelled',
+                                                    'skipped', 'neutral', 'timed_out', 'action_required')
+                   for step in job['steps'])
+            or (job['status'] == 'completed' and job.get('conclusion') not in
+                ('success', 'failure', 'cancelled', 'skipped', 'neutral', 'timed_out',
+                 'action_required', 'startup_failure', 'stale'))):
+        raise Indeterminate('Incomplete build job details.')
+    return job
+
+
 class Actions:
     def __init__(self, repository, token):
         if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository):
@@ -83,12 +118,27 @@ def available(runner):
 def monitor(api, run_id, clock=time.monotonic, sleep=time.sleep):
     start = clock()
     offline_since = None
+    uncertain_since = None
     while True:
-        jobs = api.request(f'/actions/runs/{run_id}/attempts/1/jobs')['jobs']
-        job = next((item for item in jobs if item['name'] == 'build'), None)
-        if not job or not job.get('runner_id') or job['status'] == 'queued':
-            if not job and api.request(f'/actions/runs/{run_id}')['status'] == 'completed':
-                raise IntegrityError('Build workflow completed without its expected job.')
+        try:
+            job = build_job(api.request(f'/actions/runs/{run_id}/attempts/1/jobs'))
+            if job is None:
+                run = api.request(f'/actions/runs/{run_id}')
+                if not isinstance(run, dict) or run.get('status') not in ('queued', 'in_progress', 'completed'):
+                    raise Indeterminate('Invalid build run snapshot.')
+                if run['status'] == 'completed':
+                    raise IntegrityError('Build workflow completed without its expected job.')
+                raise Indeterminate('Build job not yet observable.')
+        except (Indeterminate, Unavailable):
+            if uncertain_since is None:
+                uncertain_since = clock()
+            if clock() - uncertain_since >= 120:
+                raise Indeterminate('Build observation remained incomplete; reconcile the selected run.') from None
+            offline_since = None
+            sleep(10)
+            continue
+        uncertain_since = None
+        if not job.get('runner_id') or job['status'] == 'queued':
             if job and job['status'] == 'completed':
                 raise IntegrityError('Build ended before assignment.')
             if clock() - start >= 120:
@@ -127,6 +177,8 @@ def select(api, inputs):
         raise Unavailable()
     try:
         monitor(api, run_id)
+    except Indeterminate:
+        raise
     except BaseException:
         api.cancel(run_id)
         raise

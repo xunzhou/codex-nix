@@ -75,6 +75,83 @@ class RoutingTests(unittest.TestCase):
                 route.select(api, {})
             api.cancel.assert_called_once_with(12)
 
+    def run_selection(self, snapshots, *, error=None):
+        api = Mock()
+        api.runners.return_value = [runner()]
+        polls = iter(snapshots)
+        last = snapshots[-1]
+        def request(path, body=None):
+            if path.endswith('/dispatches'):
+                return {'workflow_run_id': 12}
+            if path.endswith('/jobs'):
+                value = next(polls, last)
+                if isinstance(value, Exception):
+                    raise value
+                return value
+            if path == '/actions/runs/12':
+                return {'status': 'in_progress'}
+            self.fail('Unexpected request: ' + path)
+        api.request.side_effect = request
+        elapsed = 0
+        def advance(seconds):
+            nonlocal elapsed
+            elapsed += seconds
+        monitor = route.monitor
+        def observed(client, run_id):
+            return monitor(client, run_id, clock=lambda: elapsed, sleep=advance)
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'outputs'
+            env = dict(BUILD_REPOSITORY='example/builder', BUILD_DISPATCH_TOKEN='fixture',
+                       SOURCE_RUN_ID='42', SOURCE_BASE=SHA, SOURCE_SHA=SHA,
+                       BUNDLE_SHA256='b' * 64, VERSION=VERSION, GITHUB_OUTPUT=str(output))
+            with patch.dict(route.os.environ, env), patch.object(route, 'Actions', return_value=api), \
+                    patch.object(route, 'monitor', side_effect=observed):
+                if error:
+                    with self.assertRaises(error):
+                        route.main('select')
+                    self.assertFalse(output.exists())
+                else:
+                    route.main('select')
+                    self.assertEqual(output.read_text(), 'run_id=12\n')
+        self.assertEqual(sum(c.args[0].endswith('/dispatches') for c in api.request.call_args_list), 1)
+        api.cancel.assert_not_called()
+        return elapsed
+
+    def test_null_before_valid_build_waits_for_trustworthy_snapshot(self):
+        job = dict(name='build', runner_id=5, status='completed', conclusion='success', steps=[])
+        elapsed = self.run_selection([{'jobs': [None, job]}, {'jobs': [job]}])
+        self.assertEqual(elapsed, 10)
+
+    def test_incomplete_snapshots_then_valid_build_do_not_cancel_or_redispatch(self):
+        job = dict(name='build', runner_id=5, status='completed', conclusion='success', steps=[])
+        self.assertEqual(self.run_selection([
+            {'jobs': [None]}, {'jobs': []}, {'jobs': [job], 'total_count': 2},
+            {'jobs': [job], 'total_count': 1}]), 30)
+
+    def test_persistent_untrustworthy_snapshot_never_falls_back(self):
+        for snapshot in (route.Unavailable(), None, {}, {'jobs': None}, {'jobs': [None]}, {'jobs': []},
+                         {'jobs': [{'name': 'build', 'status': 'completed', 'conclusion': 'success'}]}):
+            with self.subTest(snapshot=snapshot):
+                self.assertEqual(self.run_selection([snapshot], error=route.Indeterminate), 120)
+
+    def test_transient_observation_error_recovers_without_fallback(self):
+        job = dict(name='build', runner_id=5, status='completed', conclusion='success', steps=[])
+        self.assertEqual(self.run_selection([route.Unavailable(), {'jobs': [job]}]), 10)
+
+    def test_assigned_build_is_not_cancelled_after_snapshot_loss(self):
+        running = dict(name='build', runner_id=5, status='in_progress', steps=[])
+        self.assertEqual(self.run_selection([{'jobs': [running]}, {'jobs': [None]}],
+                                           error=route.Indeterminate), 130)
+
+    def test_complete_missing_job_and_ambiguous_identity_fail_closed(self):
+        api = Mock()
+        api.request.side_effect = [{'jobs': []}, {'status': 'completed'}]
+        with self.assertRaises(route.IntegrityError):
+            route.monitor(api, 12)
+        job = dict(name='build', runner_id=5, status='completed', conclusion='success', steps=[])
+        with self.assertRaises(route.IntegrityError):
+            route.build_job({'jobs': [job, job]})
+
     def test_import_digest_provenance_and_inventory_before_promoting_either_set(self):
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch)
