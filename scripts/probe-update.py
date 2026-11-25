@@ -25,16 +25,47 @@ def command(*args):
     return result.stdout
 
 
-def api(path):
-    for attempt in range(3):
-        result = subprocess.run(['gh', 'api', '--method', 'GET', path],
-                                capture_output=True, text=True, timeout=120)
-        if result.returncode == 0:
-            return json.loads(result.stdout)
-        # Retry only known transient GET failures. Never retry a denial or write.
-        if attempt == 2 or not re.search(r'HTTP (?:500|502|503|504)\b', result.stderr):
-            raise ValueError('GitHub release metadata request failed')
+class TransientMetadataError(ValueError):
+    pass
+
+
+def api(path, attempts=3):
+    for attempt in range(attempts):
+        try:
+            result = subprocess.run(['gh', 'api', '--method', 'GET', path],
+                                    capture_output=True, text=True, timeout=120)
+        except subprocess.TimeoutExpired as error:
+            if attempt == attempts - 1:
+                raise TransientMetadataError('GitHub metadata request timed out') from error
+        else:
+            if result.returncode == 0:
+                return json.loads(result.stdout)
+            # Only known transient GET failures may retry or use smaller pages.
+            if not re.search(r'HTTP (?:500|502|503|504)\b', result.stderr):
+                raise ValueError('GitHub release metadata request failed')
+            if attempt == attempts - 1:
+                raise TransientMetadataError('GitHub metadata temporarily unavailable')
         time.sleep(attempt + 1)
+
+
+def upstream_releases():
+    # Match update.sh: select only from the first 100 published-list entries.
+    # Malformed metadata and denials must not trigger a pagination fallback.
+    try:
+        batch = api('repos/openai/codex/releases?per_page=100', attempts=1)
+    except TransientMetadataError:
+        result = []
+        for page in range(1, 21):
+            batch = api(f'repos/openai/codex/releases?per_page=5&page={page}')
+            if not isinstance(batch, list) or len(batch) > 5:
+                raise ValueError('invalid upstream release page')
+            result.extend(batch)
+            if len(batch) < 5:
+                break
+        return result
+    if not isinstance(batch, list) or len(batch) > 100:
+        raise ValueError('invalid upstream release listing')
+    return batch
 
 
 def releases(repository):
@@ -143,11 +174,18 @@ def probe(event, version='', retry=False, claim=False):
         if not published(release) or release.get('tag_name') != 'rust-v' + version:
             raise ValueError('requested upstream release is not published stable')
     else:
-        release = api('repos/openai/codex/releases/latest')
-        match = STABLE.fullmatch(release.get('tag_name', '')) if isinstance(release, dict) else None
-        if not published(release) or not match:
-            raise ValueError('upstream Latest is not a published stable release')
-        version = match[1]
+        versions = [match[1] for release in upstream_releases()
+                    if published(release) and isinstance(release.get('tag_name'), str)
+                    and (match := STABLE.fullmatch(release['tag_name']))]
+        if not versions:
+            raise ValueError('no published stable upstream release')
+        numeric = lambda value: tuple(map(int, value.split('.')))
+        version = max(versions, key=numeric)
+        pinned = json.loads((ROOT / 'build.json').read_text())['default_version']
+        if not isinstance(pinned, str) or not re.fullmatch(VERSION, pinned):
+            raise ValueError('invalid manifest version')
+        if numeric(version) < numeric(pinned):
+            return decision(False, 'older-than-pin')
     downstream = releases(REPOSITORY)
     if any(published(release) and (match := PUBLISHED.fullmatch(release.get('tag_name', '')))
            and match[1] == version for release in downstream):

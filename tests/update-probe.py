@@ -67,7 +67,7 @@ print(json.dumps(value))
         self.git('push', '-q', 'origin', 'HEAD:refs/heads/main')
         subprocess.run([sys.executable, 'scripts/publication_gate.py', 'install'], cwd=self.repo,
                        env=self.env, capture_output=True, check=True)
-        self.fixtures = {'repos/openai/codex/releases/latest': release('rust-v0.173.0'),
+        self.fixtures = {'repos/openai/codex/releases?per_page=100': [release('rust-v0.173.0')],
                          'repos/xunzhou/codex-nix/releases?per_page=100&page=1': []}
         self.fixtures['repos/openai/codex/releases/tags/rust-v0.173.0'] = release('rust-v0.173.0')
         self.run_status()
@@ -230,19 +230,19 @@ print(json.dumps(value))
             self.run_probe('--event', 'workflow_dispatch', '--version', version, success=False)
 
     def test_transient_metadata_get_retries_but_denial_does_not(self):
-        endpoint = 'repos/openai/codex/releases/latest'
+        endpoint = 'repos/openai/codex/releases/tags/rust-v0.173.0'
         self.fixtures[endpoint] = {'__http_error': 503, 'then': release('rust-v0.173.0')}
         self.save()
-        self.assertTrue(self.run_probe('--event', 'schedule')['build'])
+        self.assertTrue(self.run_probe('--event', 'workflow_dispatch', '--version', '0.173.0')['build'])
         self.assertEqual((self.root / 'calls').read_text().count(endpoint), 2)
         (self.root / 'calls').unlink()
         self.fixtures[endpoint] = {'__http_error': 403, 'then': release('rust-v0.173.0')}
         self.save()
-        self.run_probe('--event', 'schedule', success=False)
+        self.run_probe('--event', 'workflow_dispatch', '--version', '0.173.0', success=False)
         self.assertEqual((self.root / 'calls').read_text().count(endpoint), 1)
 
     def test_metadata_failure_or_prerelease_fails_closed(self):
-        for data in ({}, {'repos/openai/codex/releases/latest': release('rust-v0.173.0', prerelease=True)}):
+        for data in ({}, {'repos/openai/codex/releases?per_page=100': [release('rust-v0.173.0', prerelease=True)]}):
             self.fixtures = data
             self.save()
             self.run_probe('--event', 'schedule', '--claim', success=False)
@@ -263,6 +263,92 @@ print(json.dumps(value))
     def test_uninstalled_gate_blocks_marker(self):
         self.git('config', '--unset', 'core.hooksPath')
         self.run_probe('--event', 'schedule', '--claim', success=False)
+        self.assertEqual(len(self.git('ls-remote', '--refs', 'origin').splitlines()), 1)
+
+    def test_highest_numeric_stable_ignores_latest_and_nonstable(self):
+        self.fixtures['repos/openai/codex/releases/latest'] = release('rust-v0.172.0')
+        self.fixtures['repos/openai/codex/releases?per_page=100'] = [
+            release('rust-v0.173.0'), release('rust-v0.99.0'),
+            release('rust-v0.174.0-alpha.1', prerelease=True),
+            release('rust-v0.175.0', draft=True), release('rust-v0.176.0', prerelease=True),
+            None, {}, release('rust-v01.200.0')]
+        self.save()
+        for event in ('schedule', 'workflow_dispatch'):
+            self.assertEqual(self.run_probe('--event', event)['version'], '0.173.0')
+        self.assertNotIn('/latest', (self.root / 'calls').read_text())
+
+    def test_small_pages_cross_boundary_and_stop_at_first_hundred(self):
+        endpoint = 'repos/openai/codex/releases?per_page=100'
+        self.fixtures[endpoint] = {'__http_error': 504, 'then': []}
+        for page in range(1, 21):
+            self.fixtures[f'repos/openai/codex/releases?per_page=5&page={page}'] = [
+                release('rust-v0.171.0')] * 5
+        self.fixtures['repos/openai/codex/releases?per_page=5&page=2'][0] = release('rust-v0.173.0')
+        self.fixtures['repos/openai/codex/releases?per_page=5&page=21'] = [release('rust-v0.200.0')]
+        self.save()
+        self.assertEqual(self.run_probe('--event', 'schedule')['version'], '0.173.0')
+        calls = (self.root / 'calls').read_text().splitlines()
+        self.assertEqual(len(calls), 22)  # one large failure, twenty pages, downstream
+        self.assertNotIn('repos/openai/codex/releases?per_page=5&page=21', calls)
+
+    def test_incomplete_fallback_does_not_claim_from_earlier_page(self):
+        self.fixtures['repos/openai/codex/releases?per_page=100'] = {'__http_error': 504, 'then': []}
+        self.fixtures['repos/openai/codex/releases?per_page=5&page=1'] = [release('rust-v0.173.0')] * 5
+        self.save()
+        self.run_probe('--event', 'schedule', '--claim', success=False)
+        self.assertEqual(len(self.git('ls-remote', '--refs', 'origin').splitlines()), 1)
+        self.assertFalse(any('codex-nix/releases' in p for p in (self.root / 'calls').read_text().splitlines()))
+
+    def test_bad_metadata_and_denial_never_fall_back(self):
+        endpoint = 'repos/openai/codex/releases?per_page=100'
+        for value in ({}, None, 'wrong', [release('rust-v0.173.0')] * 101,
+                      {'__http_error': 403, 'then': []}):
+            self.fixtures[endpoint] = value
+            self.save()
+            (self.root / 'calls').unlink(missing_ok=True)
+            self.run_probe('--event', 'schedule', '--claim', success=False)
+            self.assertEqual((self.root / 'calls').read_text().splitlines(), [endpoint])
+            self.assertEqual(len(self.git('ls-remote', '--refs', 'origin').splitlines()), 1)
+
+    def test_older_listing_cannot_downgrade_pin(self):
+        self.fixtures['repos/openai/codex/releases?per_page=100'] = [release('rust-v0.171.0')]
+        self.save()
+        self.assertEqual(self.run_probe('--event', 'schedule', '--claim')['reason'], 'older-than-pin')
+        self.assertEqual(len((self.root / 'calls').read_text().splitlines()), 1)
+        self.assertEqual(len(self.git('ls-remote', '--refs', 'origin').splitlines()), 1)
+
+    def test_same_published_version_has_only_two_gets_and_false_job_output(self):
+        self.fixtures['repos/openai/codex/releases?per_page=100'] = [release('rust-v0.172.0')]
+        self.fixtures['repos/xunzhou/codex-nix/releases?per_page=100&page=1'] = [
+            release('bundle-codex-v0.172.0-' + 'a' * 16 + '-' + 'b' * 16)]
+        self.save()
+        output = self.root / 'noop-output'
+        self.assertFalse(self.run_probe('--event', 'schedule', '--claim', '--output', str(output))['build'])
+        self.assertIn('build=false\n', output.read_text())
+        self.assertEqual(len((self.root / 'calls').read_text().splitlines()), 2)
+        self.assertEqual(len(self.git('ls-remote', '--refs', 'origin').splitlines()), 1)
+
+    def test_large_timeout_uses_small_page_without_retrying_large_request(self):
+        import importlib.util
+        from unittest.mock import patch
+        spec = importlib.util.spec_from_file_location('probe_timeout', ROOT / 'scripts/probe-update.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        small = [release('rust-v0.173.0')]
+        with patch.object(module.subprocess, 'run', side_effect=[
+                subprocess.TimeoutExpired('gh', 120),
+                subprocess.CompletedProcess('gh', 0, json.dumps(small), '')]) as run:
+            self.assertEqual(module.upstream_releases(), small)
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(run.call_args_list[1].args[0][-1],
+                         'repos/openai/codex/releases?per_page=5&page=1')
+
+    def test_wrong_shape_small_page_fails_closed(self):
+        self.fixtures['repos/openai/codex/releases?per_page=100'] = {'__http_error': 504, 'then': []}
+        self.fixtures['repos/openai/codex/releases?per_page=5&page=1'] = {}
+        self.save()
+        self.run_probe('--event', 'schedule', '--claim', success=False)
+        self.assertEqual(len((self.root / 'calls').read_text().splitlines()), 2)
         self.assertEqual(len(self.git('ls-remote', '--refs', 'origin').splitlines()), 1)
 
     def test_draft_release_is_not_publication(self):
